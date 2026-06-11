@@ -58,6 +58,9 @@ local EFFECT_LABELS = {
 
 local function effectText(key, val)
     local label = EFFECT_LABELS[key] or key
+    if type(val) ~= "number" then
+        return label .. " " .. tostring(val)
+    end
     if val == 1 and (key == "blackoutImmunity") then
         return label
     elseif val >= 1 and key ~= "matchPower" and key ~= "dailyMoneyBonus" and key ~= "apBonus" and key ~= "moodFloor" then
@@ -89,9 +92,9 @@ local function BuildPullResultCard(item)
     end
 
     return UI.Panel {
-        width = "100%", padding = 10, borderRadius = 10,
+        width = "100%", padding = 10, borderRadius = PX.cardRadius,
         backgroundColor = { tInfo.color[1] * 0.2, tInfo.color[2] * 0.2, tInfo.color[3] * 0.2, bgAlpha },
-        borderWidth = tier >= 4 and 2 or 1,
+        borderWidth = PX.border,
         borderColor = { tInfo.color[1], tInfo.color[2], tInfo.color[3], tier >= 4 and 200 or 80 },
         gap = 4,
         children = {
@@ -149,8 +152,10 @@ local function BuildPullView()
     local singleText = dailyFree and "✨ 每日免费单抽" or ("单抽 · " .. MarketData.PULL_COST.single .. "🪙")
     table.insert(pullButtons, UI.Button {
         text = singleText, fontSize = 14, height = 44, flex = 1,
-        variant = dailyFree and "primary" or "default",
-        backgroundColor = dailyFree and { 90, 160, 60, 220 } or nil,
+        backgroundColor = dailyFree and { 60, 140, 50, 240 } or nil,
+        fontColor = dailyFree and { 220, 255, 210, 255 } or nil,
+        borderWidth = dailyFree and PX.border or nil,
+        borderColor = dailyFree and { 90, 200, 80, 200 } or nil,
         onClick = function()
             local results, err = Market.Pull("single")
             if err then
@@ -175,6 +180,7 @@ local function BuildPullView()
             else
                 pullResults_ = results
                 local t5, t4, t3 = 0, 0, 0
+                ---@diagnostic disable-next-line: param-type-mismatch
                 for _, r in ipairs(results) do
                     if r.def.tier == 5 then t5 = t5 + 1
                     elseif r.def.tier == 4 then t4 = t4 + 1
@@ -277,14 +283,14 @@ local function BuildBagView()
     local slotCards = {}
     for i = 1, playerData_.marketSlots do
         local sd = slotsDisplay[i]
-        if sd then
+        if sd and sd.def then
             local def = sd.def
             local inst = sd.inst
             table.insert(slotCards, UI.Panel {
                 width = "100%", flexDirection = "row", alignItems = "center",
-                padding = 8, borderRadius = 8, gap = 8,
+                padding = 8, borderRadius = PX.cardRadius, gap = 8,
                 backgroundColor = { 50, 55, 45, 200 },
-                borderWidth = 1, borderColor = tierColor(def.tier),
+                borderWidth = PX.border, borderColor = tierColor(def.tier),
                 children = {
                     UI.Label { text = "槽" .. i, fontSize = 11, fontColor = C.textLight, width = 28 },
                     UI.Label { text = def.icon, fontSize = 20 },
@@ -318,6 +324,93 @@ local function BuildBagView()
         end
     end
 
+    -- ── P2-1: 装备智能推荐（预计算，稍后插入装备栏之后）──
+    local recommendPanel = nil
+    do
+        local hasEmptySlot = false
+        for si = 1, playerData_.marketSlots do
+            if not playerData_.marketEquipped[si] then hasEmptySlot = true; break end
+        end
+        if hasEmptySlot and #items > 0 then
+            local WEIGHT = {
+                matchPower = 30, trainBonus = 20, trafficBonus = 15,
+                allRevenueBonus = 25, dailyMoneyBonus = 0.5, repBonus = 10,
+                goldenHourBonus = 15, apBonus = 8, blackoutImmunity = 20,
+            }
+            local bestItem, bestScore = nil, -1
+            for _, item in ipairs(items) do
+                if not item.equipped and (tonumber(item.inst.dur) or 0) > 0 then
+                    local score = (tonumber(item.tier) or 1) * 20
+                    if item.def.effects then
+                        for k, v in pairs(item.def.effects) do
+                            if type(v) == "number" then
+                                local w = WEIGHT[k] or 5
+                                score = score + v * w
+                            elseif type(v) == "string" and tonumber(v) then
+                                local w = WEIGHT[k] or 5
+                                score = score + tonumber(v) * w
+                            end
+                        end
+                    end
+                    if score > bestScore then
+                        bestScore = score
+                        bestItem = item
+                    end
+                end
+            end
+            if bestItem then
+                local bd = bestItem.def
+                local bi = bestItem.inst
+                local emptySlot = nil
+                for si = 1, playerData_.marketSlots do
+                    if not playerData_.marketEquipped[si] then emptySlot = si; break end
+                end
+                local efSummary = {}
+                if bd.effects then
+                    for k, v in pairs(bd.effects) do
+                        table.insert(efSummary, effectText(k, v))
+                        if #efSummary >= 2 then break end
+                    end
+                end
+                local efStr = #efSummary > 0 and table.concat(efSummary, "  ") or "无特殊加成"
+                recommendPanel = UI.Panel {
+                    width = "100%", padding = 8, borderRadius = 8,
+                    backgroundColor = { 30, 60, 30, 200 },
+                    borderWidth = 1, borderColor = { 100, 200, 100, 160 },
+                    flexDirection = "row", alignItems = "center", gap = 8,
+                    children = {
+                        UI.Label { text = "💡", fontSize = 18, flexShrink = 0 },
+                        UI.Panel { flex = 1, gap = 2, children = {
+                            UI.Label {
+                                text = "推荐装备: " .. bd.icon .. " " .. bd.name,
+                                fontSize = 12, fontWeight = "bold", fontColor = { 160, 230, 160, 240 }, flexShrink = 1,
+                            },
+                            UI.Label {
+                                text = efStr,
+                                fontSize = 10, fontColor = { 130, 200, 130, 180 }, flexShrink = 1,
+                            },
+                        }},
+                        UI.Button {
+                            text = "一键装备", fontSize = 11, height = 30, width = 64,
+                            backgroundColor = { 50, 140, 50, 230 },
+                            fontColor = { 220, 255, 220, 255 },
+                            onClick = function()
+                                local ok, err2 = Market.Equip(bi.uid, emptySlot)
+                                if ok then
+                                    AddLog("💡 智能推荐: 装备了 " .. bd.name .. " → 槽" .. emptySlot)
+                                    PlaySFX("coin")
+                                else
+                                    AddLog("❌ " .. (err2 or "装备失败"))
+                                end
+                                BuildUI()
+                            end,
+                        },
+                    },
+                }
+            end
+        end
+    end
+
     -- 槽位解锁按钮
     local nextSlot, slotErr = Market.GetNextSlotUnlock()
     local slotUnlockBtn = nil
@@ -330,6 +423,7 @@ local function BuildBagView()
                 if ok then
                     AddLog("🔓 解锁了装备栏第 " .. playerData_.marketSlots .. " 格！")
                     PlaySFX("coin")
+                    if SaveGame then SaveGame() end
                 else
                     AddLog("❌ " .. (err2 or "解锁失败"))
                 end
@@ -355,14 +449,26 @@ local function BuildBagView()
         },
     })
     if slotUnlockBtn then table.insert(children, slotUnlockBtn) end
+    -- P2-1 推荐横幅紧跟装备栏下方
+    if recommendPanel then table.insert(children, recommendPanel) end
 
     -- ── 当前聚合效果 ──
     local effects = Market.CalcEquippedEffects()
+    local activatedList = effects._activated or {}
     local effectLabels = {}
     for k, v in pairs(effects) do
-        if v ~= 0 then
+        if k ~= "_activated" and v ~= 0 then
             table.insert(effectLabels, UI.Label {
                 text = "✦ " .. effectText(k, v), fontSize = 12, fontColor = { 180, 220, 180, 230 }, width = "100%",
+            })
+        end
+    end
+    -- P2: 激活效应提示
+    if #activatedList > 0 then
+        for _, act in ipairs(activatedList) do
+            table.insert(effectLabels, UI.Label {
+                text = "⚡ " .. act.name .. " 激活(" .. act.cond .. ")",
+                fontSize = 11, fontColor = { 255, 200, 80, 240 }, width = "100%",
             })
         end
     end
@@ -395,9 +501,17 @@ local function BuildBagView()
             end,
         })
     end
-    table.insert(children, UI.Panel {
-        width = "100%", flexDirection = "row", gap = 4, flexWrap = "wrap",
-        children = filterBtns,
+    table.insert(children, UI.ScrollView {
+        width = "100%", height = 34, flexShrink = 0,
+        scrollDirection = "horizontal",
+        showScrollIndicator = false,
+        children = {
+            UI.Panel {
+                flexDirection = "row", gap = 4, alignItems = "center",
+                height = "100%", paddingHorizontal = 2,
+                children = filterBtns,
+            },
+        },
     })
 
     -- ── 批量回收 ──
@@ -473,7 +587,7 @@ local function BuildBagView()
                         break
                     end
                 end
-                if emptySlot and inst.dur > 0 then
+                if emptySlot and (tonumber(inst.dur) or 0) > 0 then
                     table.insert(actionBtns, UI.Button {
                         text = "装备", fontSize = 10, height = 26, width = 44,
                         variant = "primary",
@@ -639,9 +753,11 @@ function BuildMarketUI()
         local isActive = (marketSubTab_ == st.key)
         table.insert(tabBtns, UI.Button {
             text = st.label, fontSize = 14, height = 38, flex = 1,
-            backgroundColor = isActive and C.accent or C.card,
-            fontColor = isActive and C.text or C.textLight,
-            borderRadius = 8,
+            fontWeight = isActive and "bold" or "normal",
+            backgroundColor = isActive and C.bg or C.cardAlt,
+            fontColor = isActive and C.gold or C.textDim,
+            borderRadius = PX.cardRadius, borderWidth = PX.border,
+            borderColor = isActive and C.gold or { C.border[1], C.border[2], C.border[3], 100 },
             onClick = function()
                 marketSubTab_ = st.key
                 pullResults_ = nil
@@ -654,8 +770,14 @@ function BuildMarketUI()
     local function safeView(name, fn)
         local ok, result = pcall(fn)
         if ok then return result end
-        print("[UIMarket] " .. name .. " error: " .. tostring(result))
-        return UI.Label { text = name .. " 加载失败", fontSize = 12, fontColor = C.textDim }
+        local errMsg = tostring(result)
+        print("[UIMarket] " .. name .. " error: " .. errMsg)
+        -- 显示简短错误信息帮助定位
+        local shortErr = #errMsg > 60 and errMsg:sub(1, 60) .. "…" or errMsg
+        return UI.Panel { width = "100%", gap = 4, padding = 8, children = {
+            UI.Label { text = name .. " 加载失败", fontSize = 12, fontColor = C.red },
+            UI.Label { text = shortErr, fontSize = 10, fontColor = C.textDim, whiteSpace = "normal", width = "100%" },
+        }}
     end
     if marketSubTab_ == "pull" then
         content = safeView("PullView", BuildPullView)

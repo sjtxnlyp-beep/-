@@ -79,6 +79,25 @@ end
 -- 存档系统
 -- ============================================================================
 local SAVE_FILE = "save_africa_cafe.json"
+local SAVE_BACKUP = "save_africa_cafe.bak.json"
+local SAVE_TEMP = "save_africa_cafe.tmp.json"
+
+--- 安全写入存档（先写临时文件，成功后再替换正式文件）
+local function SafeWriteFile(filename, content)
+    local file = File(filename, FILE_WRITE)
+    if not file:IsOpen() then return false, "cannot open file" end
+    file:WriteString(content)
+    file:Close()
+    -- 验证写入是否成功（回读检查）
+    local verify = File(filename, FILE_READ)
+    if not verify:IsOpen() then return false, "verify open failed" end
+    local readBack = verify:ReadString()
+    verify:Close()
+    if #readBack ~= #content then
+        return false, "verify size mismatch: wrote " .. #content .. " read " .. #readBack
+    end
+    return true
+end
 
 --- 保存游戏进度
 function SaveGame()
@@ -92,7 +111,12 @@ function SaveGame()
         eventLog = eventLog_,
         currentChapter = currentChapter_,
         storyTriggered = storyTriggered_,
-        unlockedAchievements = unlockedAchievements_,
+        -- 集市摊贩支线故事
+        marketStoryProgress = marketStoryProgress_,
+        marketStoryCompleted = marketStoryCompleted_,
+        marketStoryLastDay = marketStoryLastDay_,
+        marketStoryCrossCompleted = marketStoryCrossCompleted_,
+        -- unlockedAchievements 已迁移到 playerData_.achievements，此字段保留为空以兼容旧版读取
         chaptersRead = chaptersRead_,
         npcJournal = npcJournal_,
         -- 群聊数据
@@ -133,33 +157,81 @@ function SaveGame()
     local encOk, jsonStr = pcall(cjson.encode, saveData)
     if not encOk then
         log:Write(LOG_ERROR, "[Save] cjson.encode failed: " .. tostring(jsonStr))
-        return
+        return false
     end
-    local file = File(SAVE_FILE, FILE_WRITE)
-    if file:IsOpen() then
-        file:WriteString(jsonStr)
-        file:Close()
-        print("[Save] Game saved. Day=" .. playerData_.day)
-    else
-        print("[Save] Failed to open save file!")
+    -- 基本合法性检查：JSON 至少应该以 { 开头且长度合理
+    if type(jsonStr) ~= "string" or #jsonStr < 50 or jsonStr:sub(1, 1) ~= "{" then
+        log:Write(LOG_ERROR, "[Save] Invalid JSON output, len=" .. tostring(jsonStr and #jsonStr or 0))
+        return false
     end
+
+    -- 原子写入流程：先写临时文件 → 验证 → 备份旧文件 → 替换
+    local writeOk, writeErr = SafeWriteFile(SAVE_TEMP, jsonStr)
+    if not writeOk then
+        log:Write(LOG_ERROR, "[Save] Temp write failed: " .. tostring(writeErr))
+        if AddLog then AddLog("⚠️ 存档写入失败，请检查存储空间") end
+        return false
+    end
+
+    -- 备份当前存档（如果存在）
+    if fileSystem:FileExists(SAVE_FILE) then
+        local oldFile = File(SAVE_FILE, FILE_READ)
+        if oldFile:IsOpen() then
+            local oldContent = oldFile:ReadString()
+            oldFile:Close()
+            if #oldContent > 50 then
+                SafeWriteFile(SAVE_BACKUP, oldContent)
+            end
+        end
+    end
+
+    -- 将临时文件内容写入正式存档
+    local finalOk, finalErr = SafeWriteFile(SAVE_FILE, jsonStr)
+    if not finalOk then
+        log:Write(LOG_ERROR, "[Save] Final write failed: " .. tostring(finalErr))
+        if AddLog then AddLog("⚠️ 存档保存失败") end
+        return false
+    end
+
+    print("[Save] Game saved. Day=" .. playerData_.day .. " size=" .. #jsonStr)
+    if AddLog and playerData_ then
+        AddLog("💾 进度已自动保存（第" .. (playerData_.day or 1) .. "天）")
+    end
+    return true
 end
 
---- 检查是否有存档
+--- 检查是否有存档（主存档或备份都算）
 function HasSaveFile()
-    return fileSystem:FileExists(SAVE_FILE)
+    return fileSystem:FileExists(SAVE_FILE) or fileSystem:FileExists(SAVE_BACKUP)
+end
+
+--- 尝试从指定文件读取并解析存档
+local function TryLoadFile(filename)
+    if not fileSystem:FileExists(filename) then return nil, "not found" end
+    local file = File(filename, FILE_READ)
+    if not file:IsOpen() then return nil, "cannot open" end
+    local content = file:ReadString()
+    file:Close()
+    if not content or #content < 10 then return nil, "empty file" end
+    local ok, data = pcall(cjson.decode, content)
+    if not ok or type(data) ~= "table" then return nil, "decode failed: " .. tostring(data) end
+    if not data.playerData then return nil, "missing playerData" end
+    return data
 end
 
 --- 加载游戏进度
 function LoadGame()
-    if not HasSaveFile() then return false end
-    local file = File(SAVE_FILE, FILE_READ)
-    if not file:IsOpen() then return false end
-    local ok, data = pcall(cjson.decode, file:ReadString())
-    file:Close()
-    if not ok or not data then
-        print("[Save] Failed to decode save file!")
-        return false
+    -- 先尝试主存档，失败则自动回退到备份
+    local data, err = TryLoadFile(SAVE_FILE)
+    if not data then
+        print("[Save] Primary load failed: " .. tostring(err) .. ", trying backup...")
+        data, err = TryLoadFile(SAVE_BACKUP)
+        if not data then
+            print("[Save] Backup load also failed: " .. tostring(err))
+            return false
+        end
+        print("[Save] Loaded from backup successfully!")
+        if AddLog then AddLog("⚠️ 主存档损坏，已从备份恢复") end
     end
 
     -- 恢复玩家数据
@@ -188,11 +260,50 @@ function LoadGame()
         playerData_.goalCompleted = playerData_.goalCompleted or {}
         playerData_.activePeriodicEvent = playerData_.activePeriodicEvent or nil
         playerData_.lastPeriodicDay = playerData_.lastPeriodicDay or {}
-        playerData_.npcStoryProgress = playerData_.npcStoryProgress or { kofi = 0, grace = 0, snake = 0 }
+        playerData_.npcStoryProgress = playerData_.npcStoryProgress or {}
+        -- 补全新增NPC进度键（兼容旧存档）
+        for _, npc in ipairs({"kofi", "grace", "snake", "ada", "dj_pulse", "mama_b"}) do
+            playerData_.npcStoryProgress[npc] = playerData_.npcStoryProgress[npc] or 0
+        end
+        -- ── 新系统字段兜底（v11+ 子系统） ──
+        playerData_.aelTier = playerData_.aelTier or 0
+        playerData_.weeklyWins = playerData_.weeklyWins or 0
+        playerData_.weeklyTrainCount = playerData_.weeklyTrainCount or 0
+        playerData_.weeklyIncome = playerData_.weeklyIncome or 0
+        playerData_.weeklyRepGain = playerData_.weeklyRepGain or 0
+        playerData_.weeklyWinStreak = playerData_.weeklyWinStreak or 0
+        playerData_.achievements = playerData_.achievements or {}
+        playerData_.mailbox = playerData_.mailbox or {}
+        playerData_.eggsTriggered = playerData_.eggsTriggered or {}
+        playerData_.eggCounters = playerData_.eggCounters or {}
+        playerData_.eggPrestigeCount = playerData_.eggPrestigeCount or 0
+        playerData_.linkagesClaimed = playerData_.linkagesClaimed or {}
+        playerData_.chapterCompleted = playerData_.chapterCompleted or {}
+        playerData_.dailyGreetingShownDay = playerData_.dailyGreetingShownDay or 0
+        playerData_.unlocksNotified = playerData_.unlocksNotified or {}
+        if playerData_.loginStreakClaimed == nil then playerData_.loginStreakClaimed = false end
+        playerData_.marketFreeDraws = playerData_.marketFreeDraws or 0
+        playerData_.decoSlots = playerData_.decoSlots or {}
+        playerData_.decoSlotsMax = playerData_.decoSlotsMax or 3
+        playerData_.nearBankruptCount = playerData_.nearBankruptCount or 0
+        playerData_.questStreak = playerData_.questStreak or 0
+        playerData_.dayHistory = playerData_.dayHistory or {}
+        playerData_.cityFacilities = playerData_.cityFacilities or {}
+        if playerData_.strategyChosen == nil then playerData_.strategyChosen = false end
+        if playerData_.overtimeUsedToday == nil then playerData_.overtimeUsedToday = false end
+        playerData_.endOfDayDurPenalty = playerData_.endOfDayDurPenalty or 0
     end
 
     -- 恢复队员
-    if data.teamMembers then teamMembers_ = data.teamMembers end
+    if data.teamMembers then
+        teamMembers_ = data.teamMembers
+        -- 兼容旧存档：确保每个队员核心字段不为 nil
+        for _, m in ipairs(teamMembers_) do
+            m.mood = m.mood or 50
+            m.skill = m.skill or 0
+            m.talent = m.talent or 50
+        end
+    end
 
     -- 恢复群聊数据（兼容旧存档：无群聊数据时用空表）
     chatMessages_ = data.chatMessages or {}
@@ -207,8 +318,12 @@ function LoadGame()
     if data.pendingChatEventId then
         for _, evt in ipairs(CHAT_EVENTS) do
             if evt.id == data.pendingChatEventId and evt.decision then
-                local dec = evt.decision()
-                pendingChatDecision_ = { eventId = evt.id, question = dec.question, options = dec.options }
+                local decOk, dec = pcall(evt.decision)
+                if decOk and dec then
+                    pendingChatDecision_ = { eventId = evt.id, question = dec.question, options = dec.options }
+                else
+                    print("[Save] Failed to rebuild pendingChatDecision for event: " .. tostring(evt.id))
+                end
                 break
             end
         end
@@ -250,8 +365,20 @@ function LoadGame()
     -- 恢复剧情触发记录
     if data.storyTriggered then storyTriggered_ = data.storyTriggered end
 
-    -- 恢复成就和已读章节
-    if data.unlockedAchievements then unlockedAchievements_ = data.unlockedAchievements end
+    -- 恢复集市摊贩支线故事进度
+    marketStoryProgress_ = data.marketStoryProgress or {}
+    marketStoryCompleted_ = data.marketStoryCompleted or {}
+    marketStoryLastDay_ = data.marketStoryLastDay or {}
+    marketStoryCrossCompleted_ = data.marketStoryCrossCompleted or {}
+
+    -- 旧存档迁移：unlockedAchievements → playerData_.achievements
+    -- 新系统把成就存在 playerData_.achievements 中，旧字段如有数据则合并
+    if data.unlockedAchievements and next(data.unlockedAchievements) then
+        playerData_.achievements = playerData_.achievements or {}
+        for id, v in pairs(data.unlockedAchievements) do
+            if v then playerData_.achievements[id] = true end
+        end
+    end
     if data.chaptersRead then chaptersRead_ = data.chaptersRead end
 
     -- 恢复 NPC 事迹记录（兼容旧存档）
@@ -301,6 +428,56 @@ function LoadGame()
         end
     end
 
+    -- ======== 修复 JSON 数字 key 反序列化问题 ========
+    -- cjson.decode 会把数字 key 还原为数字（在 lua-cjson 2.1+ 中），
+    -- 但某些 sparse table（如 marketEquipped/decoSlots）可能混用字符串 key。
+    -- 统一修复：将字符串数字 key 转为真正的数字 key。
+    local function fixNumericKeys(tbl)
+        if type(tbl) ~= "table" then return tbl end
+        local fixed = {}
+        local needsFix = false
+        for k, v in pairs(tbl) do
+            local numK = tonumber(k)
+            if numK and type(k) == "string" then
+                fixed[numK] = v
+                needsFix = true
+            else
+                fixed[k] = v
+            end
+        end
+        if needsFix then
+            -- 清空原表并写回修复后的数据
+            for k in pairs(tbl) do tbl[k] = nil end
+            for k, v in pairs(fixed) do tbl[k] = v end
+        end
+        return tbl
+    end
+
+    -- 修复已知使用数字 key 的字段
+    if playerData_.marketEquipped then
+        fixNumericKeys(playerData_.marketEquipped)
+    end
+    if playerData_.decoSlots then
+        fixNumericKeys(playerData_.decoSlots)
+    end
+    if playerData_.tierWins then
+        fixNumericKeys(playerData_.tierWins)
+    end
+    if playerData_.tournamentTierWins then
+        fixNumericKeys(playerData_.tournamentTierWins)
+    end
+    if playerData_.seasonRewards then
+        fixNumericKeys(playerData_.seasonRewards)
+    end
+
+    -- ======== 二手市场字段兼容（确保 Validate 不会清空已有数据）========
+    if Market and Market.Validate then
+        Market.Validate(playerData_)
+    end
+    if Market and Market.ValidateFacility then
+        Market.ValidateFacility(playerData_)
+    end
+
     -- 兼容旧存档：友谊赛字段
     playerData_.friendlyWins = playerData_.friendlyWins or 0
     playerData_.friendlyLosses = playerData_.friendlyLosses or 0
@@ -324,9 +501,10 @@ function LoadGame()
     trafficBonus_ = 0
     cachedTrafficDay_ = -1
 
-    -- 恢复候选池：用名字重建
+    -- 恢复候选池：用当前城市重建完整池后，按保存的名字过滤出剩余候选人
+    local currentCity = playerData_.currentCity or "wakandaville"
     if data.candidateNames then
-        InitCandidatePool()  -- 先重建完整候选池
+        InitCandidatePool(currentCity)  -- 先按当前城市重建完整候选池
         local nameSet = {}
         for _, n in ipairs(data.candidateNames) do nameSet[n] = true end
         local newPool = {}
@@ -334,6 +512,9 @@ function LoadGame()
             if nameSet[c.name] then table.insert(newPool, c) end
         end
         CANDIDATE_POOL = newPool
+    else
+        -- 旧存档无 candidateNames 字段：直接按城市初始化完整池
+        InitCandidatePool(currentCity)
     end
 
     -- ========== 版本迁移 ==========
@@ -367,7 +548,10 @@ function LoadGame()
         playerData_.goalProgress = playerData_.goalProgress or { develop = 1, social = 1, wealth = 1 }
         playerData_.goalCompleted = playerData_.goalCompleted or {}
         playerData_.lastPeriodicDay = playerData_.lastPeriodicDay or {}
-        playerData_.npcStoryProgress = playerData_.npcStoryProgress or { kofi = 0, grace = 0, snake = 0 }
+        playerData_.npcStoryProgress = playerData_.npcStoryProgress or {}
+        for _, npc in ipairs({"kofi", "grace", "snake", "ada", "dj_pulse", "mama_b"}) do
+            playerData_.npcStoryProgress[npc] = playerData_.npcStoryProgress[npc] or 0
+        end
         playerData_.lastSaveTimestamp = playerData_.lastSaveTimestamp or 0
 
         -- 通知玩家新系统
@@ -386,16 +570,46 @@ function LoadGame()
     end
 
     -- 计算离线收益（需要 Retention 模块已加载）
-    if playerData_.lastSaveTimestamp > 0 and Retention then
-        local offlineSeconds = os.time() - playerData_.lastSaveTimestamp
-        local reward = Retention.CalculateOfflineEarnings(offlineSeconds)
-        if reward then
-            pendingOfflineReward_ = reward
-            print("[Save] Offline earnings pending: $" .. reward.earnings .. " (" .. reward.hours .. "h)")
+    if playerData_.lastSaveTimestamp and playerData_.lastSaveTimestamp > 0 and Retention then
+        local offOk, offErr = pcall(function()
+            local offlineSeconds = os.time() - playerData_.lastSaveTimestamp
+            local reward = Retention.CalculateOfflineEarnings(offlineSeconds)
+            if reward then
+                pendingOfflineReward_ = reward
+                print("[Save] Offline earnings pending: $" .. tostring(reward.earnings) .. " (" .. tostring(reward.hours) .. "h)")
+            end
+        end)
+        if not offOk then
+            print("[Save] Offline earnings calc error (non-fatal): " .. tostring(offErr))
         end
     end
 
-    print("[Save] Game loaded. Day=" .. playerData_.day .. ", Chapter=" .. currentChapter_)
+    print("[Save] Game loaded. Day=" .. tostring(playerData_.day) .. ", Chapter=" .. tostring(currentChapter_))
     return true
+end
+
+-- ============================================================================
+-- 自动存档：应用挂起/切后台/定时保存
+-- ============================================================================
+local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动存档一次
+local autoSaveTimer_ = 0
+
+--- 在 HandleUpdate 中调用，实现定时自动存档
+function AutoSaveUpdate(dt)
+    -- 仅在游戏进行中（非标题/非对话）时自动存档
+    if not playerData_ or currentPhase_ == PHASE_TITLE then return end
+    autoSaveTimer_ = autoSaveTimer_ + dt
+    if autoSaveTimer_ >= AUTO_SAVE_INTERVAL then
+        autoSaveTimer_ = 0
+        local ok, err = pcall(SaveGame)
+        if not ok then
+            log:Write(LOG_ERROR, "[AutoSave] error: " .. tostring(err))
+        end
+    end
+end
+
+--- 重置自动存档计时器（在手动存档后调用，避免重复存储）
+function ResetAutoSaveTimer()
+    autoSaveTimer_ = 0
 end
 

@@ -1,10 +1,14 @@
 ---@diagnostic disable: undefined-global
 local CafeAnimEvents = require("CafeAnimEvents")
+local MarketStorylines = require("MarketStorylines")
 
 function UseActionPoint(cost)
     cost = cost or 1
-    if playerData_.actionPoints < cost then return false end
-    playerData_.actionPoints = playerData_.actionPoints - cost
+    local ap = playerData_.actionPoints or 0
+    if ap < cost then return false end
+    playerData_.actionPoints = ap - cost
+    -- 微反馈：AP消耗粒子
+    pcall(MFX_APBurst, cost)
     -- RV2: 黄金时段触发检查（方案9）
     if RV2 and not RV2.IsGoldenHour() then
         pcall(RV2.TryTriggerGoldenHour)
@@ -37,10 +41,19 @@ function SettleFreeTrainReward(score)
 end
 
 function ScoutRecruit()
-    if playerData_.money < 200 or #CANDIDATE_POOL == 0 then return end
+    local scoutCost = GetCityCost and GetCityCost(200) or 200
+    -- 角色组合被动：招募费用折扣
+    if ComboEvents then
+        local dOk, disc = pcall(ComboEvents.GetRecruitDiscount)
+        if dOk and disc and disc > 0 then
+            scoutCost = math.max(50, math.floor(scoutCost * (1 - disc)))
+        end
+    end
+    if playerData_.money < scoutCost or #CANDIDATE_POOL == 0 then return end
     if not UseActionPoint(1) then return end
-    playerData_.money = playerData_.money - 200
-    AddLog("🔍 花了 $200 四处打听，看看有没有高手……")
+    playerData_.money = playerData_.money - scoutCost
+    pcall(MFX_MoneyPop, -scoutCost)
+    AddLog("🔍 花了 $" .. scoutCost .. " 四处打听，看看有没有高手……")
 
     CafeAnimEvents.Push("scout")
     if math.random() < 0.75 then
@@ -73,94 +86,1032 @@ end
 
 -- ========== v4 新行动 ==========
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 集市特殊事件系统 v2
+-- 架构：60%总触发率 → 从合格池中等权随机抽1个
+-- 分层：通用可重复 / 队友可重复 / 感情线一次性 / 彩蛋一次性
+-- ═══════════════════════════════════════════════════════════════════════════
+
+--- 辅助：检查是否有指定队员
+local function _HasTeammate(name)
+    for _, m in ipairs(teamMembers_) do if m.name == name then return true end end
+    return false
+end
+
+local MARKET_SPECIAL_EVENTS = {
+    -- ══════════════════════════════════════════════════════════════
+    -- 通用可重复层（无条件，任何时候都可能触发）
+    -- ══════════════════════════════════════════════════════════════
+    { id = "market_griot", oneTime = false,
+      cond = function() return true end,
+      icon = "🪘", title = "说书人的故事",
+      narrative = "集市中央的大树下，一位白发苍苍的老人正在击鼓说书。周围围满了人。\n\n"
+          .. "他讲的是一个年轻人离开家乡、在远方建立王国的故事。你听不懂约鲁巴语，但旁边有人翻译：\n\n"
+          .. "「……他说，真正的财富不是金子，而是你身边愿意留下来的人。」\n\n"
+          .. "你站着听完了整个故事。回去的路上，不知为什么觉得特别踏实。",
+      effect = function()
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 5) end
+          return "😊 全队心情+5（故事的力量）"
+      end,
+    },
+    { id = "market_bargain", oneTime = false,
+      cond = function() return true end,
+      icon = "🗣️", title = "砍价王",
+      narrative = nil,
+      effect = function()
+          if math.random(1, 100) <= 55 then
+              local earn = 60 + math.floor(playerData_.reputation / 12)
+              playerData_.money = playerData_.money + earn
+              playerData_.reputation = playerData_.reputation + 5
+              return "💰 +$" .. earn .. " ⭐+5（砍价胜利！）"
+          else
+              playerData_.money = playerData_.money - 20
+              return "💸 -$20（被大妈反杀了……）"
+          end
+      end,
+      getNarrative = function(result)
+          if result:find("胜利") then
+              return "一个摊位上摆着成色不错的二手路由器。你随口问价——$120？太贵了。\n\n"
+                  .. "你使出看家本领：先假装走开，然后被叫回来；再挑毛病，再假装不情愿……\n\n"
+                  .. "三个回合后，大妈叹了口气：「行行行！就你最会讲价！$60拿走！」\n\n"
+                  .. "你心里美滋滋的。这可是能转手大赚一笔的好货。"
+          else
+              return "一个摊位上摆着成色不错的二手路由器。你随口问价——$80？可以再便宜点吗？\n\n"
+                  .. "大妈眯起眼睛：「年轻人，你看看这成色！别处你找不到的！」\n\n"
+                  .. "一番拉扯后……你也不知道怎么回事，走出集市时手里多了一串你完全不需要的珠子，$20就这么没了。\n\n"
+                  .. "回头看，大妈正对着你的背影笑。老江湖了。"
+          end
+      end,
+    },
+    { id = "market_lost", oneTime = false,
+      cond = function() return true end,
+      icon = "🌀", title = "迷路了",
+      narrative = "你往集市深处走了一条从没走过的小巷——然后就彻底迷路了。\n\n"
+          .. "七拐八绕之后，你发现一个僻静的小院子，里面竟然摆着各种手工艺品：木雕、蜡染布、串珠画……\n\n"
+          .. "院子主人是个沉默的老奶奶，比划了半天，以极低的价格卖给你一块漂亮的蜡染布。\n\n"
+          .. "你把它挂在网吧墙上——嘿，还真有那味了。",
+      effect = function()
+          playerData_.decoLevel = math.min(playerData_.decoLevel + 1, 10)
+          playerData_.reputation = playerData_.reputation + 5
+          return "🎨 装饰+1 ⭐声望+5（发现宝藏小院）"
+      end,
+    },
+    { id = "market_barber", oneTime = false,
+      cond = function() return true end,
+      icon = "💇", title = "流动理发师",
+      narrative = "一个推着小车的理发师热情地拦住你：「Oga! Come sit! I make you look like Wizkid!」\n\n"
+          .. "你本想拒绝，但旁边几个大妈也在起哄：「让他剪！他手艺好！」\n\n"
+          .. "半小时后你顶着一个从没尝试过的发型走出来。说实话——还挺潮的？\n\n"
+          .. "回到网吧，队员们盯着你看了三秒，然后爆笑：「老板这是要去选秀吗？！」\n"
+          .. "但当天来了好几个新顾客——都是在集市上见过你新发型的。",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 8
+          playerData_.money = playerData_.money - 15
+          return "⭐ 声望+8 💸-$15（新发型出圈了）"
+      end,
+    },
+    { id = "market_football_bet", oneTime = false,
+      cond = function() return true end,
+      icon = "⚽", title = "足球彩票",
+      narrative = nil,
+      effect = function()
+          if math.random(1, 100) <= 45 then
+              local win = 80 + math.random(20, 60)
+              playerData_.money = playerData_.money + win
+              return "💰 +$" .. win .. "（赢了！）"
+          else
+              playerData_.money = playerData_.money - 50
+              return "💸 -$50（输了……）"
+          end
+      end,
+      getNarrative = function(result)
+          if result:find("赢") then
+              return "集市角落有个足球下注摊，一群人围着看比赛。大屏幕上是非洲杯半决赛。\n\n"
+                  .. "「Nigeria vs Ghana! 来一注！」摊主冲你招手。\n\n"
+                  .. "你犹豫了一下，掏了$50押尼日利亚。最后10分钟——进了！！\n\n"
+                  .. "「GOOOAAAL!」全场疯了。你挤出人群时口袋里鼓鼓的，今天运气不错。"
+          else
+              return "集市角落有个足球下注摊，一群人围着看比赛。大屏幕上是非洲杯半决赛。\n\n"
+                  .. "「Nigeria vs Ghana! 来一注！」摊主冲你招手。\n\n"
+                  .. "你掏了$50押尼日利亚。补时第3分钟——加纳绝杀了。\n\n"
+                  .. "你看着摊主收走你的钱，他还安慰你：「Next time, oga! Next time!」\n下次个鬼啊……"
+          end
+      end,
+    },
+    { id = "market_food_stall", oneTime = false,
+      cond = function() return true end,
+      icon = "🍖", title = "绝味烤肉串",
+      narrative = "一股令人窒息的香气把你拐进了一条小巷——一个从没见过的烤肉摊。\n\n"
+          .. "摊主是个笑眯眯的大叔，炭火上滋滋作响的 Suya 肉串裹满了辣椒粉和花生碎。\n\n"
+          .. "「来，尝一根！不好吃不要钱！」\n\n你咬了一口——味觉爆炸。辣、香、焦、嫩，全有了。\n\n"
+          .. "你当场买了二十根打包回去。当晚训练时队员们吃得满嘴流油，士气高涨：\n「老板以后每天买！」",
+      effect = function()
+          playerData_.money = playerData_.money - 25
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 4) end
+          return "😊 全队心情+4 💸-$25（美食的力量）"
+      end,
+    },
+    { id = "market_fortune", oneTime = false,
+      cond = function() return true end,
+      icon = "🔮", title = "占卜师",
+      narrative = nil,
+      effect = function()
+          local roll = math.random(1, 3)
+          if roll == 1 then
+              playerData_.trainBonus = (playerData_.trainBonus or 0) + 1
+              return "🎯 下次训练效果+1（命运指引）"
+          elseif roll == 2 then
+              for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 6) end
+              return "😊 全队心情+6（吉兆）"
+          else
+              playerData_.reputation = playerData_.reputation + 10
+              return "⭐ 声望+10（贵人相助）"
+          end
+      end,
+      getNarrative = function(result)
+          if result:find("训练") then
+              return "一个包着靛蓝头巾的老妇人坐在路边，面前摆着一堆贝壳和骨头。\n\n"
+                  .. "她突然抬头看着你：「You! Sit down. The spirits have something for you.」\n\n"
+                  .. "她把贝壳撒在布上，端详了许久：「Your hands will be blessed tomorrow. Whatever you do, do it with full heart.」\n\n"
+                  .. "你半信半疑地走了。但第二天训练时，你确实觉得手感出奇地好。"
+          elseif result:find("心情") then
+              return "一个包着靛蓝头巾的老妇人坐在路边，面前摆着一堆贝壳和骨头。\n\n"
+                  .. "她拉住你的手看了看掌纹，露出一个温暖的笑：\n\n"
+                  .. "「Good fortune is coming. Your people——they are the right ones. Trust them.」\n\n"
+                  .. "你不知道她说的准不准，但心里暖暖的。回去告诉队员们，大家都笑了：「老板被忽悠了吧！」\n但笑着笑着，气氛确实好了不少。"
+          else
+              return "一个包着靛蓝头巾的老妇人坐在路边，面前摆着一堆贝壳和骨头。\n\n"
+                  .. "她闭着眼念了几句，然后睁开：「A powerful person will notice you soon. Be ready.」\n\n"
+                  .. "你笑笑准备离开，她又加了一句：「Leave something for the spirits.」\n\n"
+                  .. "你放了几块钱在她面前。说来奇怪，当天下午就有个商人主动找你谈合作。"
+          end
+      end,
+    },
+    { id = "market_musician", oneTime = false,
+      cond = function() return true end,
+      icon = "🎵", title = "街头乐手",
+      narrative = "集市拐角处，一个瘦高个青年坐在翻过来的水桶上，弹着一把破旧的拇指琴。\n\n"
+          .. "叮叮咚咚的声音出奇地好听。周围的人都停下脚步听，有人跟着节奏轻轻摇摆。\n\n"
+          .. "他弹完一曲，冲你笑了笑：「Like it? This is the sound of home.」\n\n"
+          .. "你丢了几块钱进他面前的破碗里。走出老远，旋律还在耳边转。\n晚上回到网吧，你哼着那个调子——队员们说你今天心情特别好。",
+      effect = function()
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 3) end
+          playerData_.reputation = playerData_.reputation + 3
+          return "😊 全队心情+3 ⭐+3（音乐治愈）"
+      end,
+    },
+    { id = "market_phone_scam", oneTime = false,
+      cond = function() return playerData_.day >= 5 end,
+      icon = "📱", title = "充值骗局",
+      narrative = "「Oga! Cheap data! 10GB only $20!」一个年轻人拿着一叠充值卡凑过来。\n\n"
+          .. "价格确实便宜得离谱。你掏钱买了两张——回去一试，全是空卡。\n\n"
+          .. "你气冲冲跑回去找人，那小子早跑没影了。旁边卖水的大姐同情地看着你：\n\n"
+          .. "「Every new person falls for this one time. Now you know.」\n\n"
+          .. "亏了钱，但长了教训。而且因为你在集市上\"义正辞严\"追人的样子，反而传出了\"这个老板不好欺负\"的名声。",
+      effect = function()
+          playerData_.money = playerData_.money - 30
+          playerData_.reputation = playerData_.reputation + 10
+          return "💸 -$30 ⭐+10（吃一堑长一智）"
+      end,
+    },
+
+    -- ══════════════════════════════════════════════════════════════
+    -- 队友可重复层（需特定队员在队）
+    -- ══════════════════════════════════════════════════════════════
+    { id = "market_kofi_delivery", oneTime = false,
+      cond = function() return _HasTeammate("Kofi") end,
+      icon = "🚲", title = "Kofi的副业",
+      narrative = "远远地你看到一个熟悉的身影——Kofi骑着他那辆破单车在集市里穿梭，车后座绑着好几个包裹。\n\n"
+          .. "「Kofi？你在送外卖？」你喊住他。\n\n"
+          .. "他一脸尴尬地刹住车：「老板……我就是顺路帮人带点东西。我妈最近身体不好，医药费……」\n\n"
+          .. "你拍拍他的肩：「以后别偷偷摸摸的了。训练完有空你就跑，我不扣你工资。」\n\n"
+          .. "Kofi愣了一下，然后笑了——那种从心底冒出来的笑：「老板！我训练绝对更拼命！」",
+      effect = function()
+          for _, m in ipairs(teamMembers_) do
+              if m.name == "Kofi" then m.mood = math.min(100, m.mood + 15); break end
+          end
+          playerData_.reputation = playerData_.reputation + 5
+          return "😊 Kofi心情+15 ⭐+5（老板的温度）"
+      end,
+    },
+    { id = "market_snake_contact", oneTime = false,
+      cond = function() return _HasTeammate("Snake") end,
+      icon = "🐍", title = "Snake的门路",
+      narrative = nil,
+      effect = function()
+          if math.random(1, 100) <= 65 then
+              local earn = 70 + math.random(30, 80)
+              playerData_.money = playerData_.money + earn
+              return "💰 +$" .. earn .. "（黑市好价）"
+          else
+              playerData_.money = playerData_.money - 40
+              return "💸 -$40（这次翻车了）"
+          end
+      end,
+      getNarrative = function(result)
+          if result:find("好价") then
+              return "转过一个巷子，你差点撞上Snake——他正在跟一个戴金牙的大哥低声说话。\n\n"
+                  .. "看到你来了，Snake不慌不忙：「老板，来得正好。这位兄弟有批……呃，'渠道货'。显卡，便宜。」\n\n"
+                  .. "你看了看成色——确实是好东西。Snake帮你砍了个绝低的价，大哥也给面子。\n\n"
+                  .. "离开时Snake说：「在街上混过的人，总有几个用得着的朋友。」\n你想想也是，这种人脉确实买不到。"
+          else
+              return "转过一个巷子，你差点撞上Snake——他正在跟一个戴金牙的大哥低声说话。\n\n"
+                  .. "「老板！有批好货！显卡！价格绝对美丽！」Snake信誓旦旦。\n\n"
+                  .. "你掏了钱……回去一试，全是矿卡，跑两分钟就过热死机。\n\n"
+                  .. "Snake挠挠头：「那个……下次我先验货。」\n你叹了口气——江湖有风险，跟着Snake淘货也是个技术活。"
+          end
+      end,
+    },
+    { id = "market_bigjoe_bodyguard", oneTime = false,
+      cond = function() return _HasTeammate("Big Joe") end,
+      icon = "🛡️", title = "Big Joe的威压",
+      narrative = "集市里正走着，前面突然起了骚动——两帮人在对峙，眼看要动手。\n\n"
+          .. "你正想绕道走，Big Joe不知从哪冒出来，往人群中间一站。\n\n"
+          .. "他连话都没说，就那么站着。一米九的块头、满脸刀疤——两帮人看了他一眼，竟然各自散了。\n\n"
+          .. "「Joe，你怎么在这？」\n\n"
+          .. "「跟在你后面怕你出事。」他面无表情，「老板，这片最近不太平，你逛集市我跟着。」\n\n"
+          .. "旁边目睹全程的摊主们纷纷点头：你家这位保镖，排面十足。",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 12
+          for _, m in ipairs(teamMembers_) do
+              if m.name == "Big Joe" then m.mood = math.min(100, m.mood + 8); break end
+          end
+          return "⭐ 声望+12 😊Joe心情+8（大哥罩你）"
+      end,
+    },
+    { id = "market_prince_spotted", oneTime = false,
+      cond = function() return _HasTeammate("Prince") end,
+      icon = "👑", title = "王子驾到",
+      narrative = "你正路过一排摊位，突然所有摊主齐刷刷站了起来——\n\n"
+          .. "原来Prince在你身后。他今天没化妆也没换衣服，但这片的人显然都认识他爸。\n\n"
+          .. "「Oga Prince! Welcome! Anything you want, free free!」\n摊主们争先恐后献宝：最好的布料、最新鲜的水果、手工雕刻的木盒。\n\n"
+          .. "Prince一脸无奈：「我不是来摆谱的……我就是跟老板逛逛。」\n\n"
+          .. "但架不住热情——你们带着一大堆\"赠品\"回去了。Prince闷声说：\n「……我讨厌这种感觉。他们尊敬的是我爸，不是我。」\n\n"
+          .. "你说：「等你拿了冠军，他们尊敬的就是你自己了。」他没说话，但走路的步子快了几分。",
+      effect = function()
+          playerData_.money = playerData_.money + 50
+          playerData_.reputation = playerData_.reputation + 8
+          for _, m in ipairs(teamMembers_) do
+              if m.name == "Prince" then m.mood = math.min(100, m.mood + 10); break end
+          end
+          return "💰+$50 ⭐+8 😊Prince心情+10（酋长之子的烦恼）"
+      end,
+    },
+    { id = "market_thunder_race", oneTime = false,
+      cond = function() return _HasTeammate("Thunder") end,
+      icon = "⚡", title = "闪电挑战",
+      narrative = "集市中间一条直道上，几个年轻人正在比赛跑步。\n\n"
+          .. "一个小伙看到Thunder，眼睛亮了：「Ey! Aren't you Thunder? The sprinter? Race me!」\n\n"
+          .. "Thunder本想拒绝，但周围人越聚越多，全在起哄。他叹了口气脱掉外套——\n\n"
+          .. "枪响（其实是有人拍了一下铁桶）。三秒后Thunder已经冲到了终点。\n\n"
+          .. "那小伙还在半路呢。\n\n"
+          .. "围观人群疯了：「He's still got it!!」\n\nThunder喘着气回来，脸上难得带着笑：「腿伤是腿伤，但这种距离……还行。」\n\n"
+          .. "从此集市上多了个传说：Dragon网吧有个能跑过摩托车的人。",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 15
+          for _, m in ipairs(teamMembers_) do
+              if m.name == "Thunder" then m.mood = math.min(100, m.mood + 12); break end
+          end
+          return "⭐ 声望+15 😊Thunder心情+12（传说回归）"
+      end,
+    },
+    { id = "market_mamab_recipe", oneTime = false,
+      cond = function() return _HasTeammate("Mama B") end,
+      icon = "🍗", title = "烤鸡对决",
+      narrative = "集市上传来一阵骚动——两个烤鸡摊正在\"对线\"。一个是Mama B，对面是个年轻的小伙子。\n\n"
+          .. "「你这个太辣了！客人不喜欢！」小伙挑衅。\nMama B 不慌不忙：「辣？我这叫有灵魂。你那个，白开水一样。」\n\n"
+          .. "围观群众起哄：「比赛！比赛！」\n\n"
+          .. "两人各烤了一份让大家盲评。结果——Mama B 以 7:3 碾压获胜。\n\n"
+          .. "Mama B 得意地看了你一眼：「老板，看到没？你网吧请的人，哪个不是大佬。」\n小伙灰溜溜走了。你觉得网吧门口的烤鸡摊今晚得排长队了。",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 10
+          playerData_.money = playerData_.money + 30
+          for _, m in ipairs(teamMembers_) do
+              if m.name == "Mama B" then m.mood = math.min(100, m.mood + 10); break end
+          end
+          return "⭐+10 💰+$30 😊MamaB心情+10（烤鸡女王）"
+      end,
+    },
+    { id = "market_teammate_bond", oneTime = false,
+      cond = function() return #teamMembers_ >= 2 end,
+      icon = "🤜", title = "队友日常",
+      narrative = nil,
+      effect = function()
+          local m1 = teamMembers_[math.random(1, #teamMembers_)]
+          local m2 = m1
+          local attempts = 0
+          while m2.name == m1.name and attempts < 10 do
+              m2 = teamMembers_[math.random(1, #teamMembers_)]
+              attempts = attempts + 1
+          end
+          m1.mood = math.min(100, m1.mood + 6)
+          m2.mood = math.min(100, m2.mood + 6)
+          return "😊 " .. m1.name .. "&" .. m2.name .. " 心情+6（兄弟情）"
+      end,
+      getNarrative = function(result)
+          local scenes = {
+              "你在集市拐角撞见两个队员蹲在一个摊位前——在看盗版漫画。\n\n"
+                  .. "「老板！这不是……我们就是路过！」他们慌慌张张站起来。\n\n"
+                  .. "你瞄了一眼——《灌篮高手》，嗯，品味不错。\n「看完记得回去训练。」你假装严肃地说。\n\n"
+                  .. "他们对视一眼，偷笑出来。你走远后还能听到他们在讨论流川枫和三井谁更强。",
+              "集市上人挤人，你正费劲往前走，突然听到前面传来熟悉的笑声——\n\n"
+                  .. "两个队员在一个旧衣摊前互相比划T恤。一个举着件荧光绿的：「这个怎么样？比赛穿！」\n\n"
+                  .. "另一个嫌弃地摆手：「穿这个上场对面直接闪瞎了还怎么打？」\n\n"
+                  .. "你悄悄走开了。看到队员们自发地玩在一起，比什么团建活动都有用。",
+              "你路过一个二手游戏摊，发现两个队员正在跟摊主激烈讨论——\n\n"
+                  .. "「这张碟绝对是正版！」「大哥你这刻录痕迹明显的……」\n\n"
+                  .. "最后他们凑钱买了一张存疑的盘，说要回去验证。\n\n"
+                  .. "你摇摇头，但嘴角是上翘的——有这种共同爱好的队友，团队凝聚力差不了。",
+          }
+          return scenes[math.random(1, #scenes)]
+      end,
+    },
+    { id = "market_dragon_chaos", oneTime = false,
+      cond = function()
+          return playerData_.npcStoryProgress and playerData_.npcStoryProgress.dragon_dog
+              and playerData_.npcStoryProgress.dragon_dog >= 1
+      end,
+      icon = "🐕", title = "Dragon闯祸",
+      narrative = nil,
+      effect = function()
+          if math.random(1, 100) <= 50 then
+              playerData_.reputation = playerData_.reputation + 8
+              return "⭐+8 🐕（Dragon意外圈粉）"
+          else
+              playerData_.money = playerData_.money - 25
+              return "💸-$25 🐕（赔了人家的鸡）"
+          end
+      end,
+      getNarrative = function(result)
+          if result:find("圈粉") then
+              return "你带Dragon逛集市——或者说，Dragon带你逛集市。\n\n"
+                  .. "这条狗像个巡视领地的将军，在每个摊位前嗅一嗅，尾巴摇得像螺旋桨。\n\n"
+                  .. "一个卖玩具的大姐被它逗得合不拢嘴：「This dog is a celebrity!」\n\n"
+                  .. "还有小孩子排队要摸它。Dragon享受着万众瞩目，你觉得它活得比你潇洒多了。\n\n"
+                  .. "临走时好几个摊主说：「下次再带它来！」——你不确定他们更欢迎你还是Dragon。"
+          else
+              return "你带Dragon逛集市——然后后悔了。\n\n"
+                  .. "它突然挣脱绳子冲向一个活鸡摊位！鸡飞狗跳（字面意思），摊主大妈尖叫着追。\n\n"
+                  .. "等你抓住Dragon时，它嘴里叼着一根鸡毛，无辜地看着你。摊上三只鸡跑了两只。\n\n"
+                  .. "大妈义正辞严地要赔偿。你掏出钱包的手都在抖——不是心疼钱，是丢人。\n\n"
+                  .. "Dragon在旁边打了个哈欠。它没有一点愧疚之心。"
+          end
+      end,
+    },
+
+    -- ══════════════════════════════════════════════════════════════
+    -- 感情线一次性层（需bonds + stage条件）
+    -- ══════════════════════════════════════════════════════════════
+    { id = "market_xiaoxue_teach", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.xiaoxue then return false end
+          return playerData_.bonds.xiaoxue.stage >= 1
+      end,
+      icon = "📖", title = "集市角落的课堂",
+      narrative = "集市边缘的大树下，你看到了一个意想不到的画面——\n\n"
+          .. "小雪蹲在地上，面前围着五六个黑人小孩，正在用树枝在沙地上教他们写字。\n\n"
+          .. "「A——Apple。B——Ball。」孩子们跟着她大声念，发音千奇百怪但笑得灿烂。\n\n"
+          .. "你站在远处看了很久。阳光透过树叶洒下来，她笑起来的样子——你突然觉得，这大概就是她来非洲的意义。\n\n"
+          .. "小雪余光瞟到了你，愣了一下，然后耳朵红了：「你……你看了多久？」\n\n"
+          .. "「刚到。」你撒了谎。「走吧，回去了。」\n她小跑几步跟上来，嘴角压不住地上翘。",
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.xiaoxue then
+              playerData_.bonds.xiaoxue.affinity = math.min(100, playerData_.bonds.xiaoxue.affinity + 4)
+              playerData_.bonds.xiaoxue.lastInteractDay = playerData_.day
+          end
+          return "💕 小雪好感+4（心动的瞬间）"
+      end,
+    },
+    { id = "market_xiaoxue_rescue", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.xiaoxue then return false end
+          return playerData_.bonds.xiaoxue.stage >= 2
+      end,
+      icon = "🌸", title = "集市偶遇·小雪",
+      narrative = "正要离开集市，你听到一个熟悉的声音——\n\n"
+          .. "「不是！我给过钱了！You already took my money！」\n\n"
+          .. "循声一看：小雪被一个摊主拦住了，对方咬定她没付款。小雪急得脸通红，翻遍包也找不到收据。\n\n"
+          .. "你走过去，用当地语跟摊主交涉。几句话后摊主就怂了——显然是看她外国人面孔想讹一笔。\n\n"
+          .. "「你怎么在这？」小雪松了口气，眼圈都红了，「我以为……没人会帮我。」\n\n"
+          .. "「你忘了？你老板在这片有头有脸的。」你故作轻松。她破涕为笑，用力点了点头。\n\n"
+          .. "回去的路上她一直跟在你旁边，比平时近了半步。",
+      effect = function()
+          playerData_.money = playerData_.money - 20
+          if playerData_.bonds and playerData_.bonds.xiaoxue then
+              playerData_.bonds.xiaoxue.affinity = math.min(100, playerData_.bonds.xiaoxue.affinity + 5)
+              playerData_.bonds.xiaoxue.lastInteractDay = playerData_.day
+          end
+          return "💕 小雪好感+5 💸-$20（解围）"
+      end,
+    },
+    { id = "market_xiaoxue_date", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.xiaoxue then return false end
+          return playerData_.bonds.xiaoxue.stage >= 3
+              and playerData_.marketTriggered
+              and playerData_.marketTriggered["market_xiaoxue_rescue"]
+      end,
+      icon = "🍡", title = "一起逛集市",
+      narrative = "今天刚到集市入口，就看到小雪站在那里东张西望。\n\n"
+          .. "「你也来逛集市？」你走过去。\n「嗯！我想买……呃，一些东西。」她的耳尖肉眼可见地红了。\n\n"
+          .. "你们并肩走过一个个摊位。她对所有东西都好奇：非洲鼓、手编凉鞋、五颜六色的调料粉。\n\n"
+          .. "在一个烤玉米摊前，她买了两根——递一根给你：「尝尝！比国内的甜好多！」\n\n"
+          .. "玉米确实甜。但你觉得可能不只是玉米的缘故。\n\n"
+          .. "离开时她小声说：「下次……能不能再一起来？」",
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.xiaoxue then
+              playerData_.bonds.xiaoxue.affinity = math.min(100, playerData_.bonds.xiaoxue.affinity + 6)
+              playerData_.bonds.xiaoxue.lastInteractDay = playerData_.day
+          end
+          return "💕 小雪好感+6（心里甜甜的）"
+      end,
+    },
+    { id = "market_xiaoxue_gift", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.xiaoxue then return false end
+          return playerData_.bonds.xiaoxue.stage >= 4
+              and playerData_.marketTriggered
+              and playerData_.marketTriggered["market_xiaoxue_date"]
+      end,
+      icon = "🎁", title = "小雪的礼物",
+      narrative = "你刚逛完集市准备走，口袋里的手机震了一下——小雪发来消息：\n\n"
+          .. "「你今天去集市了吗？出来的时候左手边第三个摊位……有个东西帮我拿一下。我付过钱了。」\n\n"
+          .. "你半信半疑地走过去，摊主递给你一个布袋子：「你女朋友上午来订的。」\n\n"
+          .. "你说她不是——算了。打开一看：一条手编的彩色手绳，非洲风格的编织纹路，尾端坠着一颗蓝色珠子。\n\n"
+          .. "手机又响了：「那个……就是谢谢你一直照顾我。戴不戴随你啦。」\n\n"
+          .. "你把手绳套在手腕上。蓝珠子在阳光下一闪一闪的，和她的名字一样清亮。",
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.xiaoxue then
+              playerData_.bonds.xiaoxue.affinity = math.min(100, playerData_.bonds.xiaoxue.affinity + 8)
+              playerData_.bonds.xiaoxue.lastInteractDay = playerData_.day
+          end
+          return "💕 小雪好感+8（你戴上了那条手绳）"
+      end,
+    },
+    { id = "market_grace_intro", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.grace then return false end
+          return playerData_.bonds.grace.stage >= 2
+      end,
+      icon = "💼", title = "Grace的合作伙伴",
+      narrative = "你正在集市里闲逛，一个声音从背后传来——\n\n"
+          .. "「Hey！老板！」Grace 穿着一身干练的商务装从人群中走出来，身后跟着一个戴金链子的大哥。\n\n"
+          .. "「来来来，介绍一下——这是 Kwame，电子配件批发商。我跟他提过你。」\n\n"
+          .. "Kwame 上下打量你一番，咧嘴一笑：「Grace 说你网吧生意不错？以后设备配件找我，给你批发价。」\n\n"
+          .. "Grace 在旁边微微一笑：「我可是帮了你大忙吧？」她的语气里有几分得意，又有几分……别的什么。\n\n"
+          .. "你发现她今天画了淡妆。",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 15
+          if playerData_.bonds and playerData_.bonds.grace then
+              playerData_.bonds.grace.affinity = math.min(100, playerData_.bonds.grace.affinity + 4)
+              playerData_.bonds.grace.lastInteractDay = playerData_.day
+          end
+          return "💕 Grace好感+4 ⭐声望+15（人脉扩展）"
+      end,
+    },
+    { id = "market_grace_fashion", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.grace then return false end
+          return playerData_.bonds.grace.stage >= 2
+              and playerData_.marketTriggered
+              and playerData_.marketTriggered["market_grace_intro"]
+      end,
+      icon = "👗", title = "非洲的颜色",
+      narrative = "集市布料区，你远远看到Grace站在一个摊位前，身上披着一块鲜艳的Ankara布料。\n\n"
+          .. "那块布是大胆的橙红配金色，印着抽象的几何纹样。Grace对着一面小镜子左看右看。\n\n"
+          .. "「适合你。」你走过去说了一句。\n\n"
+          .. "她显然没料到你在这，一瞬间的错愕后迅速恢复了招牌的沉稳：\n「你觉得？这种风格会不会太……张扬了？」\n\n"
+          .. "「你本来就张扬。」\n\n"
+          .. "Grace愣了半秒，然后低下头笑了——一种你从没见过的、少女般的笑：\n「……那我买了。」\n\n"
+          .. "她转身付钱时你注意到她耳朵尖是红的。你假装没看见。",
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.grace then
+              playerData_.bonds.grace.affinity = math.min(100, playerData_.bonds.grace.affinity + 5)
+              playerData_.bonds.grace.lastInteractDay = playerData_.day
+          end
+          return "💕 Grace好感+5（她难得的柔软一面）"
+      end,
+    },
+    { id = "market_grace_deal", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.grace then return false end
+          return playerData_.bonds.grace.stage >= 3
+              and playerData_.marketTriggered
+              and playerData_.marketTriggered["market_grace_intro"]
+      end,
+      icon = "🤝", title = "联手砍价",
+      narrative = "Grace 拉着你去一个二手显示器摊位：「那批货我盯了很久，今天杀价需要你配合。」\n\n"
+          .. "她制定了战术：你扮演\"有很多选择的大老板\"，她扮演\"精打细算的军师\"。\n\n"
+          .. "三轮谈判后，摊主从$200降到$120。Grace 冲你挑了挑眉：「看到了吗？这就叫配合。」\n\n"
+          .. "你笑：「你应该来我网吧当经理。」\n\n"
+          .. "她顿了一下，然后轻轻笑了：「……再说吧。」\n\n"
+          .. "你们抬着显示器往回走，夕阳把两个人的影子拉得老长。",
+      effect = function()
+          playerData_.money = playerData_.money + 80
+          if playerData_.bonds and playerData_.bonds.grace then
+              playerData_.bonds.grace.affinity = math.min(100, playerData_.bonds.grace.affinity + 5)
+              playerData_.bonds.grace.lastInteractDay = playerData_.day
+          end
+          return "💕 Grace好感+5 💰+$80（完美配合）"
+      end,
+    },
+    { id = "market_grace_past", oneTime = true,
+      cond = function()
+          if not playerData_.bonds or not playerData_.bonds.grace then return false end
+          return playerData_.bonds.grace.stage >= 4
+              and playerData_.marketTriggered
+              and playerData_.marketTriggered["market_grace_deal"]
+      end,
+      icon = "🌅", title = "Grace的秘密",
+      narrative = "夕阳西下的集市，你和Grace并肩走着。今天人少，出奇地安静。\n\n"
+          .. "Grace突然开口：「你有没有想过……为什么一个拉各斯大学的高材生，会来这种小镇打电竞？」\n\n"
+          .. "你没说话，等她继续。\n\n"
+          .. "「我爸是牧师。他觉得女孩子应该嫁人、生孩子、在教堂唱诗班唱歌。」她笑了一声，很苦。\n\n"
+          .. "「我考上了拉各斯最好的大学，学了计算机。他说我叛逆。我打电竞赚了第一笔奖金寄回家——他把钱退了回来。」\n\n"
+          .. "她顿了很久。「所以你问我为什么在这。因为……这是唯一一个没有人用'应该'来定义我的地方。」\n\n"
+          .. "你说：「在我这里，你就是Grace。别的不重要。」\n\n"
+          .. "她看了你很久很久，然后轻轻说了两个字：「谢谢。」\n声音很小。但你听见了。",
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.grace then
+              playerData_.bonds.grace.affinity = math.min(100, playerData_.bonds.grace.affinity + 10)
+              playerData_.bonds.grace.lastInteractDay = playerData_.day
+          end
+          return "💕 Grace好感+10（她终于对你敞开心扉）"
+      end,
+    },
+
+    -- ══════════════════════════════════════════════════════════════
+    -- 彩蛋一次性层（高条件稀有）
+    -- ══════════════════════════════════════════════════════════════
+    { id = "market_wedding", oneTime = true,
+      cond = function()
+          return playerData_.day >= 20 and (playerData_.karma or 0) >= 5
+      end,
+      icon = "🎉", title = "误闯婚礼",
+      narrative = "你走错了一个路口——突然被一群盛装打扮的人围住了。\n\n"
+          .. "音乐声震天响，五颜六色的布料在风中飘扬。一个大妈热情地拉住你：\n"
+          .. "「Come! Come! We celebrate!」\n\n"
+          .. "原来隔壁正在办婚礼。你被拉进人群，被迫学跳了一支当地舞蹈。\n"
+          .. "新郎新娘看到你这个外国人加入特别开心，非要让你坐主桌。\n\n"
+          .. "你吃了一顿此生最丰盛的非洲宴席，还收到了一块写着祝福语的布料当礼物。\n\n"
+          .. "回到网吧，你把布料挂在门口。队员们围过来：「老板去哪嗨了？！」",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 20
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 10) end
+          return "⭐声望+20 😊全队心情+10（非洲婚礼！）"
+      end,
+    },
+    { id = "market_celebrity", oneTime = true,
+      cond = function()
+          return playerData_.day >= 30 and playerData_.reputation >= 80
+      end,
+      icon = "📺", title = "意外成名",
+      narrative = "你正在挑水果，突然一个扛着摄像机的人冲了过来——\n\n"
+          .. "「You are the Dragon Net Cafe boss, right?! We heard about your esports team!」\n\n"
+          .. "原来是当地电视台在做\"小镇创业者\"专题。记者把话筒怼到你脸前：\n\n"
+          .. "「How does a Chinese man build an esports empire in Africa?」\n\n"
+          .. "你完全没准备，支支吾吾说了几句。记者激动得不行：「Great! Very inspiring!」\n\n"
+          .. "第二天节目播了。你的手机被打爆了——包括三个想来谈赞助的商人。\n队员们在网吧围着电视回放笑得前仰后合：「老板这表情太搞了！」",
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 30
+          playerData_.money = playerData_.money + 200
+          return "⭐声望+30 💰+$200（赞助商找上门）"
+      end,
+    },
+    { id = "market_old_friend", oneTime = true,
+      cond = function()
+          return playerData_.day >= 40 and #teamMembers_ >= 4
+      end,
+      icon = "🇨🇳", title = "老乡来了",
+      narrative = "你正在集市闲逛，突然一个熟悉的语调传来——\n\n"
+          .. "「卧槽？中国人？你也在这鬼地方？！」\n\n"
+          .. "回头一看：一个晒得黢黑的中年大哥，穿着\"中国建设\"的工服，满脸惊喜。\n\n"
+          .. "「兄弟，我修路的，在这三年了。听说附近有个中国人开网吧，没想到真碰上了！」\n\n"
+          .. "你俩站在路边聊了快一个小时——从家乡菜到春节，从非洲见闻到各自的孤独。\n\n"
+          .. "临走时他说：「下周带我们工地的弟兄去你那上网。二十多号人，有折扣没？」\n\n"
+          .. "你笑：「老乡来了还收什么钱。半价！」\n\n"
+          .. "他拍着你肩膀：「兄弟，在这边不容易。互相照应着。」\n\n"
+          .. "你鼻子有点酸。好久没听到乡音了。",
+      effect = function()
+          playerData_.money = playerData_.money + 150
+          playerData_.reputation = playerData_.reputation + 15
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 5) end
+          return "💰+$150 ⭐+15 😊全队+5（他乡遇故知）"
+      end,
+    },
+    { id = "market_baobao_hustle", oneTime = true,
+      cond = function()
+          return playerData_.day >= 15 and playerData_.reputation >= 40
+      end,
+      icon = "🧳", title = "包包哥的生意经",
+      narrative = "集市最热闹的十字路口，你看到了包包哥——他正在摆摊卖……手机壳？\n\n"
+          .. "「哟！老板来了！」他热情地招呼你，「看看，义乌进的货，成本两块五，这边卖$5一个！」\n\n"
+          .. "你凑过去看：一堆花花绿绿的手机壳，居然还有印着非洲领导人头像的款式。\n\n"
+          .. "「这你怎么想到的？」\n\n"
+          .. "包包哥得意地笑：「在非洲做生意，得接地气！我还有一批印国旗的充电宝，你要不要在网吧代卖？分你三成！」\n\n"
+          .. "你看着他那精明的笑脸，不得不承认——浙江人做生意确实有一套。\n最后你答应了。反正网吧柜台空着也是空着。",
+      effect = function()
+          playerData_.money = playerData_.money + 60
+          playerData_.reputation = playerData_.reputation + 8
+          return "💰+$60 ⭐+8（浙商的智慧）"
+      end,
+    },
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--- 检查集市特殊事件触发（v2：60%总触发率 + 等权抽取）
+-- ═══════════════════════════════════════════════════════════════════════════
+function CheckMarketSpecialEvent()
+    -- 60% 总触发率：先决定是否触发特殊事件
+    if math.random(1, 100) > 60 then return nil end
+
+    -- 确保存在 marketTriggered 记录表
+    playerData_.marketTriggered = playerData_.marketTriggered or {}
+    -- 记忆窗口：最近3次触发的事件ID，防止连续重复
+    playerData_.marketRecentIds = playerData_.marketRecentIds or {}
+
+    -- 构建候选列表（满足条件的事件）
+    local candidates = {}
+    for _, evt in ipairs(MARKET_SPECIAL_EVENTS) do
+        -- 一次性事件检查是否已触发
+        if evt.oneTime and playerData_.marketTriggered[evt.id] then
+            goto continue
+        end
+        -- 条件检查
+        if evt.cond and not evt.cond() then
+            goto continue
+        end
+        table.insert(candidates, evt)
+        ::continue::
+    end
+
+    if #candidates == 0 then return nil end
+
+    -- 短期记忆：从候选中排除最近3次触发的事件（一次性事件不受此限制，本来就不会重复）
+    local freshCandidates = {}
+    local recentSet = {}
+    for _, rid in ipairs(playerData_.marketRecentIds) do recentSet[rid] = true end
+    for _, evt in ipairs(candidates) do
+        if evt.oneTime or not recentSet[evt.id] then
+            table.insert(freshCandidates, evt)
+        end
+    end
+    -- 降级：如果排除后为空（极端情况），退回全池
+    if #freshCandidates > 0 then candidates = freshCandidates end
+
+    -- 优先级：感情线一次性 > 彩蛋一次性 > 等权随机
+    local chosen = nil
+
+    -- 感情线一次性事件（小雪优先）
+    local romanceCandidates = {}
+    for _, evt in ipairs(candidates) do
+        if evt.oneTime and (evt.id:find("xiaoxue") or evt.id:find("grace")) then
+            table.insert(romanceCandidates, evt)
+        end
+    end
+    if #romanceCandidates > 0 then
+        chosen = romanceCandidates[math.random(1, #romanceCandidates)]
+    end
+
+    -- 其他一次性事件
+    if not chosen then
+        local oneTimeCandidates = {}
+        for _, evt in ipairs(candidates) do
+            if evt.oneTime then
+                table.insert(oneTimeCandidates, evt)
+            end
+        end
+        if #oneTimeCandidates > 0 and math.random(1, 100) <= 40 then
+            chosen = oneTimeCandidates[math.random(1, #oneTimeCandidates)]
+        end
+    end
+
+    -- 等权随机（从所有候选中抽）
+    if not chosen then
+        chosen = candidates[math.random(1, #candidates)]
+    end
+
+    -- 更新记忆窗口（滑动保留最近3次，展现事件丰富度）
+    table.insert(playerData_.marketRecentIds, chosen.id)
+    if #playerData_.marketRecentIds > 3 then
+        table.remove(playerData_.marketRecentIds, 1)
+    end
+
+    -- 标记已触发
+    if chosen.oneTime then
+        playerData_.marketTriggered[chosen.id] = true
+        -- 感情线事件同步到 bonds.triggered
+        if chosen.id:find("xiaoxue") and playerData_.bonds and playerData_.bonds.xiaoxue then
+            playerData_.bonds.xiaoxue.triggered = playerData_.bonds.xiaoxue.triggered or {}
+            playerData_.bonds.xiaoxue.triggered[chosen.id] = true
+        elseif chosen.id:find("grace") and playerData_.bonds and playerData_.bonds.grace then
+            playerData_.bonds.grace.triggered = playerData_.bonds.grace.triggered or {}
+            playerData_.bonds.grace.triggered[chosen.id] = true
+        end
+    end
+
+    -- 执行效果
+    local effectStr = ""
+    if chosen.effect then
+        effectStr = chosen.effect() or ""
+    end
+
+    -- 叙事文本（支持动态生成）
+    local narrativeText = chosen.narrative
+    if chosen.getNarrative then
+        narrativeText = chosen.getNarrative(effectStr)
+    end
+
+    -- 特殊动画
+    if chosen.id:find("xiaoxue") then
+        CafeAnimEvents.Push("market_xiaoxue")
+    elseif chosen.id:find("grace") then
+        CafeAnimEvents.Push("market_grace")
+    elseif chosen.id == "market_wedding" then
+        CafeAnimEvents.Push("market_wedding")
+    end
+
+    return {
+        icon = chosen.icon,
+        title = chosen.title,
+        narrative = narrativeText,
+        effects = effectStr,
+    }
+end
+
+-- ── 集市基础故事池（10个独立故事，替代旧的roll分段）──
+local MARKET_BASE_STORIES = {
+    {
+        id = "base_keyboard", icon = "⌨️", title = "淘到好货",
+        narrative = "集市角落，一个大叔正在收拾摊位。你眼尖，一眼认出那堆破纸箱里藏着几套品质不错的二手键鼠。\n\n"
+            .. "「这些不要了？」你随口一问。\n「拿走拿走，占地方！」\n\n"
+            .. "你花了点小钱收下，回去擦干净一摆——嘿，比新的还好用。转手就有人来买。",
+        apply = function()
+            local earn = 80 + math.floor(playerData_.reputation / 8)
+            playerData_.money = playerData_.money + earn
+            return "💰 +$" .. earn
+        end,
+    },
+    {
+        id = "base_mask", icon = "🎭", title = "非洲面具",
+        narrative = "一位老匠人的摊位吸引了你的目光——几十个手工雕刻的木制面具，每一个都表情各异。\n\n"
+            .. "你挑了一个龇牙咧嘴的战士面具挂在网吧门口。\n\n"
+            .. "「老板这面具好凶啊！」「酷！拍个照发朋友圈！」\n路过的人纷纷驻足，还有人专程来打卡。",
+        apply = function()
+            local repGain = 10 + math.floor((playerData_.decoLevel or 0) * 5)
+            playerData_.reputation = playerData_.reputation + repGain
+            playerData_.decoLevel = math.min((playerData_.decoLevel or 0) + 1, #UPGRADES.deco.costs)
+            return "⭐ 声望+" .. repGain
+        end,
+    },
+    {
+        id = "base_bracelet", icon = "📿", title = "特色手链",
+        cond = function() return #teamMembers_ > 0 end,
+        narrative = function()
+            local m = teamMembers_[math.random(1, #teamMembers_)]
+            local boost = 15 + math.floor((100 - m.mood) / 5)
+            m.mood = math.min(100, m.mood + boost)
+            return "逛着逛着，你在一个珠宝摊看到了一条编着彩色珠子的手链，上面刻着当地部落的祝福图案。\n\n"
+                .. "你想起 " .. m.name .. " 最近状态不太好，顺手买了一条带回去。\n\n"
+                .. "「这……给我的？」" .. m.name .. " 有点惊讶，然后咧嘴一笑，立刻戴上了。\n"
+                .. "「老板，今天训练我绝对不偷懒！」",
+                "😊 " .. m.name .. " 心情+" .. boost
+        end,
+    },
+    {
+        id = "base_havoc", icon = "🪙", title = "低价哈弗币",
+        narrative = "集市入口处，一个戴墨镜的年轻人鬼鬼祟祟凑过来：\n\n"
+            .. "「老板，要哈弗币不？我刚跑了一晚上，急出手，便宜卖！」\n\n"
+            .. "你验了验货——确实是真的。一番讨价还价后以市场价七折成交。\n"
+            .. "做完交易，他骑着摩托一溜烟跑了。这非洲地下经济，还真是无处不在。",
+        apply = function()
+            local coins = 40 + math.floor(playerData_.reputation / 10)
+            playerData_.havocCoins = playerData_.havocCoins + coins
+            return "🪙 哈弗币+" .. coins
+        end,
+    },
+    {
+        id = "base_merchant", icon = "✨", title = "稀有商人",
+        narrative = "你正准备回去，集市最深处一个你从没见过的摊位突然出现。\n\n"
+            .. "摊主是个穿着考究的中年人，摊上摆着各种电竞周边——定制鼠标垫、战队T恤、RGB灯带。\n\n"
+            .. "「你是开网吧的？」他一眼认出你，「我有批货，在非洲卖不掉，你要的话成本价给你。」\n\n"
+            .. "你一口答应。回去挂上架，当天就被网吧客人抢光了。\n这种好运，可不是天天都有。",
+        apply = function()
+            local bonus = 150 + math.random(50, 100)
+            playerData_.money = playerData_.money + bonus
+            playerData_.reputation = playerData_.reputation + 10
+            return "💰 +$" .. bonus .. "  ⭐ 声望+10"
+        end,
+    },
+    {
+        id = "base_spice", icon = "🌶️", title = "香料贩子",
+        narrative = "一位胖胖的大婶正吃力地搬着好几箱香料。你顺手帮了一把。\n\n"
+            .. "「哎呀谢谢你！中国老板是吧？」她擦擦汗，从箱子里抓了一大把辣椒和咖喱粉塞给你。\n\n"
+            .. "「拿去拿去！以后来集市找Auntie Fati，给你最低价！」\n\n"
+            .. "你拎着香料回网吧，Mama B看到两眼放光——「这个做jollof rice绝了！」",
+        apply = function()
+            local earn = 60 + math.random(20, 50)
+            playerData_.money = playerData_.money + earn
+            return "💰 +$" .. earn .. "（省下采购费）"
+        end,
+    },
+    {
+        id = "base_oware", icon = "🎲", title = "棋盘赌局",
+        narrative = "集市大树下，几个老头正围坐着玩oware棋。看你驻足观望，一个白胡子老头招手：\n\n"
+            .. "「年轻人，来一局？赢了请你喝棕榈酒，输了……请我喝。」\n\n"
+            .. "你坐下来——这局面，和打三角洲的博弈还真有几分相似。",
+        apply = function()
+            if math.random(1, 100) <= 55 then
+                local win = 50 + math.random(30, 80)
+                playerData_.money = playerData_.money + win
+                playerData_.reputation = playerData_.reputation + 5
+                return "💰 +$" .. win .. " ⭐+5（赢了！老头竖起拇指）"
+            else
+                playerData_.reputation = playerData_.reputation + 8
+                return "⭐ 声望+8（虽然输了，但老头们记住了你）"
+            end
+        end,
+    },
+    {
+        id = "base_gossip", icon = "👂", title = "八卦集散地",
+        narrative = "集市尽头的茶铺，是当地信息流通最快的地方。\n\n"
+            .. "你要了一杯甜茶，竖起耳朵听周围的闲聊。\n\n"
+            .. "有人说城东新开了一家网吧——「但老板不会搞活动，冷清得很。」\n"
+            .. "有人说下周有个大型社区活动——「摆摊的话人流量暴涨。」\n\n"
+            .. "这些情报，比任何市场报告都管用。",
+        apply = function()
+            local rep = 12 + math.random(3, 8)
+            playerData_.reputation = playerData_.reputation + rep
+            return "⭐ 声望+" .. rep .. "（情报加持）"
+        end,
+    },
+    {
+        id = "base_repair", icon = "🔧", title = "修理匠",
+        narrative = "一个路边摊铺着一块布，上面摆满了各种拆机零件——风扇、内存条、电源线，应有尽有。\n\n"
+            .. "「Boss, what you need?」摊主是个年轻人，手上还沾着焊锡的痕迹。\n\n"
+            .. "你翻了翻——居然有几块能用的显卡散热片和一把品相不错的椅子轮子。\n"
+            .. "花了点小钱打包带走。回去装上，网吧设备质量又提升了一档。",
+        apply = function()
+            playerData_.pcQuality = math.min((playerData_.pcQuality or 0) + 1, 20)
+            local earn = 30 + math.random(10, 30)
+            playerData_.money = playerData_.money + earn
+            return "🖥️ 设备+1  💰+$" .. earn
+        end,
+    },
+    {
+        id = "base_compatriot", icon = "🤝", title = "异乡人",
+        narrative = function()
+            local variants = {
+                "你在集市碰到一个背着大包的中国小伙，一聊才知道是隔壁城市做手机贸易的。\n\n"
+                    .. "「哥们你在这开网吧？牛啊！改天我带朋友过来打游戏！」\n\n"
+                    .. "他留了联系方式。在异国他乡，同胞情谊格外珍贵。",
+                "一个面熟的非洲大姐跑过来跟你打招呼——她是你家附近杂货铺的老板娘。\n\n"
+                    .. "「中国老板！我儿子天天说要去你店里打游戏，你能不能给个优惠？」\n\n"
+                    .. "你笑着说好。邻里关系，就是这样处出来的。",
+                "集市出口处，一个穿着整洁的年轻人拦住你——他自我介绍是当地大学的计算机系学生。\n\n"
+                    .. "「我听说您开了个很火的网吧……能不能让我来实习？我会修电脑！」\n\n"
+                    .. "你要了他的电话号码。人才，有时候就是这样遇到的。",
+            }
+            return variants[math.random(1, #variants)]
+        end,
+        apply = function()
+            playerData_.reputation = playerData_.reputation + 10
+            if #teamMembers_ > 0 then
+                local m = teamMembers_[math.random(1, #teamMembers_)]
+                m.mood = math.min(100, m.mood + 8)
+                return "⭐ 声望+10  😊 " .. m.name .. " 心情+8"
+            end
+            return "⭐ 声望+10"
+        end,
+    },
+}
+
 function DoVisitMarket()
-    if playerData_.money < 50 then return end
+    local marketVisitCost = GetCityCost and GetCityCost(50) or 50
+    if playerData_.money < marketVisitCost then return end
     if not UseActionPoint(1) then return end
-    playerData_.money = playerData_.money - 50
+    playerData_.money = playerData_.money - marketVisitCost
     -- 委托追踪：逛集市
     playerData_.questMarketVisit = (playerData_.questMarketVisit or 0) + 1
 
     CafeAnimEvents.Push("market_return")
-    -- 声望越高，集市结果越好（老板名声在外，商贩给好价）
-    local luckBonus = math.min(20, math.floor(playerData_.reputation / 15))
-    local roll = math.random(1, 100) + luckBonus
+    playerData_.marketRecentIds = playerData_.marketRecentIds or {}
 
     local title, narrative, effects, icon, success
 
-    if roll <= 25 then
-        local earn = 80 + math.floor(playerData_.reputation / 8)
-        playerData_.money = playerData_.money + earn
-        icon = "⌨️"
-        title = "淘到好货"
-        narrative = "集市角落，一个大叔正在收拾摊位。你眼尖，一眼认出那堆破纸箱里藏着几套品质不错的二手键鼠。\n\n"
-            .. "「这些不要了？」你随口一问。\n「拿走拿走，占地方！」\n\n"
-            .. "你花了点小钱收下，回去擦干净一摆——嘿，比新的还好用。转手就有人来买。"
-        effects = "💰 +$" .. earn
-        success = true
-    elseif roll <= 50 then
-        local repGain = 10 + math.floor(playerData_.decoLevel * 5)
-        playerData_.reputation = playerData_.reputation + repGain
-        playerData_.decoLevel = math.min(playerData_.decoLevel + 1, #UPGRADES.deco.costs)
-        icon = "🎭"
-        title = "非洲面具"
-        narrative = "一位老匠人的摊位吸引了你的目光——几十个手工雕刻的木制面具，每一个都表情各异。\n\n"
-            .. "你挑了一个龇牙咧嘴的战士面具挂在网吧门口。\n\n"
-            .. "「老板这面具好凶啊！」「酷！拍个照发朋友圈！」\n路过的人纷纷驻足，还有人专程来打卡。"
-        effects = "⭐ 声望+" .. repGain
-        success = true
-    elseif roll <= 75 then
-        if #teamMembers_ > 0 then
-            local m = teamMembers_[math.random(1, #teamMembers_)]
-            local boost = 15 + math.floor((100 - m.mood) / 5)
-            m.mood = math.min(100, m.mood + boost)
-            icon = "📿"
-            title = "特色手链"
-            narrative = "逛着逛着，你在一个珠宝摊看到了一条编着彩色珠子的手链，上面刻着当地部落的祝福图案。\n\n"
-                .. "你想起 " .. m.name .. " 最近状态不太好，顺手买了一条带回去。\n\n"
-                .. "「这……给我的？」" .. m.name .. " 有点惊讶，然后咧嘴一笑，立刻戴上了。\n"
-                .. "「老板，今天训练我绝对不偷懒！」"
-            effects = "😊 " .. m.name .. " 心情+" .. boost
-            success = true
-        else
-            playerData_.reputation = playerData_.reputation + 8
-            icon = "🤝"
-            title = "结交朋友"
-            narrative = "集市上人头攒动，你左看看右看看，虽然没买什么，但跟好几个摊主聊了起来。\n\n"
-                .. "卖布的 Amina 说她儿子想学电脑，烤玉米的 Joseph 说周末想来你店里上网。\n\n"
-                .. "在非洲做生意，人脉比什么都重要。"
-            effects = "⭐ 声望+8"
-            success = true
-        end
-    elseif roll <= 95 then
-        local coins = 40 + math.floor(playerData_.reputation / 10)
-        playerData_.havocCoins = playerData_.havocCoins + coins
-        icon = "🪙"
-        title = "低价哈弗币"
-        narrative = "集市入口处，一个戴墨镜的年轻人鬼鬼祟祟凑过来：\n\n"
-            .. "「老板，要哈弗币不？我刚跑了一晚上，急出手，便宜卖！」\n\n"
-            .. "你验了验货——确实是真的。一番讨价还价后以市场价七折成交。\n"
-            .. "做完交易，他骑着摩托一溜烟跑了。这非洲地下经济，还真是无处不在。"
-        effects = "🪙 哈弗币+" .. coins
+    -- ══ 最优先：检查摊贩支线主线故事 ══
+    local storyEvent, storyVendor, storyStage = nil, nil, nil
+    pcall(function()
+        storyEvent, storyVendor, storyStage = MarketStorylines.TryAdvance(playerData_.day)
+    end)
+    if storyEvent then
+        -- 支线故事以选择事件形式展示（复用 currentEvent_ 系统）
+        currentEvent_ = storyEvent
+        currentEvent_._marketVendor = storyVendor
+        currentEvent_._marketStage = storyStage
+        currentPhase_ = PHASE_EVENT
+        PlaySFX("event")
+        SaveGame()
+        BuildUI()
+        return
+    end
+
+    -- ══ 次优先：检查跨线联动事件（Layer 3）══
+    local crossEvent = nil
+    pcall(function()
+        crossEvent = MarketStorylines.TryGetCrosslineEvent()
+    end)
+    if crossEvent then
+        currentEvent_ = crossEvent
+        currentEvent_._marketCrossline = true
+        currentPhase_ = PHASE_EVENT
+        PlaySFX("event")
+        SaveGame()
+        BuildUI()
+        return
+    end
+
+    -- ══ 优先检查特殊事件（60%概率触发）══
+    local special = CheckMarketSpecialEvent()
+    if special then
+        icon = special.icon
+        title = special.title
+        narrative = special.narrative
+        effects = special.effects
         success = true
     else
-        local bonus = 150 + math.random(50, 100)
-        playerData_.money = playerData_.money + bonus
-        playerData_.reputation = playerData_.reputation + 10
-        icon = "✨"
-        title = "稀有商人"
-        narrative = "你正准备回去，集市最深处一个你从没见过的摊位突然出现。\n\n"
-            .. "摊主是个穿着考究的中年人，摊上摆着各种电竞周边——定制鼠标垫、战队T恤、RGB灯带。\n\n"
-            .. "「你是开网吧的？」他一眼认出你，「我有批货，在非洲卖不掉，你要的话成本价给你。」\n\n"
-            .. "你一口答应。回去挂上架，当天就被网吧客人抢光了。\n这种好运，可不是天天都有。"
-        effects = "💰 +$" .. bonus .. "  ⭐ 声望+10"
+        -- ══ 基础故事池：从10个故事中抽取（排除最近3次）══
+        local recentSet = {}
+        for _, rid in ipairs(playerData_.marketRecentIds) do recentSet[rid] = true end
+
+        local baseCandidates = {}
+        for _, story in ipairs(MARKET_BASE_STORIES) do
+            if not recentSet[story.id] then
+                if not story.cond or story.cond() then
+                    table.insert(baseCandidates, story)
+                end
+            end
+        end
+        -- 降级：全被排除时退回全池
+        if #baseCandidates == 0 then
+            for _, story in ipairs(MARKET_BASE_STORIES) do
+                if not story.cond or story.cond() then
+                    table.insert(baseCandidates, story)
+                end
+            end
+        end
+
+        local chosen = baseCandidates[math.random(1, #baseCandidates)]
+        icon = chosen.icon
+        title = chosen.title
+
+        -- 叙事：支持函数式动态生成
+        if type(chosen.narrative) == "function" then
+            local narr, eff = chosen.narrative()
+            narrative = narr
+            effects = eff or ""
+        else
+            narrative = chosen.narrative
+            effects = ""
+        end
+
+        -- 效果：apply 返回效果描述
+        if chosen.apply then
+            effects = chosen.apply()
+        end
+
+        -- 记入记忆窗口
+        table.insert(playerData_.marketRecentIds, chosen.id)
+        if #playerData_.marketRecentIds > 3 then
+            table.remove(playerData_.marketRecentIds, 1)
+        end
         success = true
+    end
+
+    -- ══ Layer 1 + Layer 2: 注入氛围文本和间歇小互动 ══
+    local ambientText, intervalText = nil, nil
+    pcall(function()
+        ambientText = MarketStorylines.GetAmbientText()
+    end)
+    pcall(function()
+        intervalText = MarketStorylines.TryGetIntervalEvent()
+    end)
+
+    -- 拼接叙事（氛围在前，正文，间歇在后）
+    local fullNarrative = ""
+    if ambientText then
+        fullNarrative = ambientText .. "\n\n"
+    end
+    fullNarrative = fullNarrative .. (narrative or "")
+    if intervalText then
+        fullNarrative = fullNarrative .. "\n\n———\n\n" .. intervalText
     end
 
     eventResult_ = {
         success = success,
         icon = icon,
         title = "🏪 逛集市 · " .. title,
-        narrative = narrative,
+        narrative = fullNarrative,
         effects = effects,
         logText = "🏪 " .. title .. " — " .. effects,
         type = "market",
@@ -217,9 +1168,10 @@ function DoHostTournament(tier)
     if friendlyMatchToday_ then AddLog("⏳ 今天已经打过比赛了，明天再来吧！"); BuildUI(); return end
     local tierCfg = MATCH_TIERS[tier]
     if not tierCfg then return end
-    if playerData_.money < tierCfg.cost or #teamMembers_ < 2 then return end
+    local matchCost = GetCityCost and GetCityCost(tierCfg.cost) or tierCfg.cost
+    if playerData_.money < matchCost or #teamMembers_ < 2 then return end
     if not UseActionPoint(1) then return end
-    playerData_.money = playerData_.money - tierCfg.cost
+    playerData_.money = playerData_.money - matchCost
     friendlyMatchToday_ = true
     currentMatchTier_ = tier  -- 记录当前比赛等级，FinishMatch 用
 
@@ -283,9 +1235,10 @@ function DoHostTournament(tier)
 end
 
 function DoPostFlyers()
-    if playerData_.money < 30 then return end
+    local flyerCost = GetCityCost and GetCityCost(30) or 30
+    if playerData_.money < flyerCost then return end
     if not UseActionPoint(1) then return end
-    playerData_.money = playerData_.money - 30
+    playerData_.money = playerData_.money - flyerCost
     local rep = math.random(8, 20)
     playerData_.reputation = playerData_.reputation + rep
     CafeAnimEvents.Push("post_flyers")
@@ -371,6 +1324,7 @@ function DoBorrowMoney()
     end
     local amount = 300
     playerData_.money = playerData_.money + amount
+    pcall(MFX_MoneyPop, amount)
     playerData_.debt = playerData_.debt + amount
     playerData_.debtDay = playerData_.day
     CafeAnimEvents.Push("borrow_money")
@@ -535,7 +1489,10 @@ end
 function DoOpenBranch(locData, gameData)
     local branches = playerData_.branches or {}
     local idx = #branches + 1
+    ---@diagnostic disable-next-line: assign-type-mismatch
     local cost = BRANCH_COSTS[idx] or 9000
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    cost = GetCityCost and GetCityCost(cost) or cost
     if playerData_.money < cost then return end
     if idx > 3 then
         AddLog("🏪 最多只能开3家分店！")
@@ -637,6 +1594,7 @@ function DoBuyFuel()
     local buyAmount = cap - fuel
     local cost = buyAmount * 8
     cost = math.max(30, cost)  -- 最低$30
+    cost = GetCityCost and GetCityCost(cost) or cost
     if playerData_.money < cost then return end
     playerData_.money = playerData_.money - cost
     playerData_.fuel = cap
@@ -661,6 +1619,7 @@ end
 
 function DoRepairEquipment()
     local repairCost = 50 + playerData_.computers * 10
+    repairCost = GetCityCost and GetCityCost(repairCost) or repairCost
     if playerData_.money < repairCost then return end
     if not UseActionPoint(1) then return end
     playerData_.money = playerData_.money - repairCost
@@ -698,9 +1657,10 @@ function DoRepairEquipment()
 end
 
 function DoTeamBBQ()
-    if playerData_.money < 60 or #teamMembers_ == 0 then return end
+    local bbqCost = GetCityCost and GetCityCost(60) or 60
+    if playerData_.money < bbqCost or #teamMembers_ == 0 then return end
     if not UseActionPoint(1) then return end
-    playerData_.money = playerData_.money - 60
+    playerData_.money = playerData_.money - bbqCost
     CafeAnimEvents.Push("bbq")
     local moodBoost = math.random(15, 30)
     for _, m in ipairs(teamMembers_) do
@@ -743,6 +1703,7 @@ function DoStreamDeltaForce()
     local coins = math.random(10, 30) + math.floor(avgSkill / 5)
 
     playerData_.money = playerData_.money + income
+    pcall(MFX_MoneyPop, income)
     playerData_.reputation = playerData_.reputation + repGain
     playerData_.havocCoins = playerData_.havocCoins + coins
     playerData_.totalRuns = playerData_.totalRuns + 2
@@ -857,6 +1818,7 @@ function DoCafeRental()
     local totalPay = math.floor((scene.basePay + compBonus) * condMult)
 
     playerData_.money = playerData_.money + totalPay
+    pcall(MFX_MoneyPop, totalPay)
     playerData_.reputation = playerData_.reputation + scene.repGain
     PlaySFX("coin_collect")
     -- 包场有概率损坏设备
@@ -956,10 +1918,23 @@ end
 ---@return number seconds
 function CalcUpgradeTime(cost, key)
     if type(cost) ~= "number" or cost <= 0 then return 15 end
+    ---@diagnostic disable-next-line: access-invisible
     local base = math.pow(cost, 0.65) * 0.5
     local cur = key and GetUpgradeCur(key) or 0
     local tier = 1.0 + cur * 0.12
     return math.min(900, math.max(15, math.floor(base * tier)))
+end
+
+--- 判断升级是否为跨日建造（费用≥1500 且等级≥3）
+---@param cost number|table 升级费用
+---@param key string 升级键名
+---@return number daysNeeded 0=当天完成, 1=需要1天, 2=需要2天
+function CalcUpgradeDaysNeeded(cost, key)
+    local costVal = type(cost) == "table" and (cost.money or 0) or (type(cost) == "number" and cost or 0)
+    local cur = key and GetUpgradeCur(key) or 0
+    if costVal >= 3000 and cur >= 4 then return 2 end  -- 超高级升级需要2天
+    if costVal >= 1500 and cur >= 3 then return 1 end  -- 高级升级需要1天
+    return 0  -- 当天完成
 end
 
 --- 格式化剩余时间
@@ -984,22 +1959,101 @@ function DoUpgrade(key)
     local nxt = cur + 1
     if nxt > #cfg.costs then return end
     local cost = cfg.costs[nxt]
+    -- 城市生活成本系数（基础倍率，在所有折扣之前应用）
+    if GetCityCost then
+        if type(cost) == "table" then
+            cost = {}
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for ck, cv in pairs(cfg.costs[nxt]) do cost[ck] = cv end
+            if cost.money then
+                cost.money = GetCityCost(cost.money)
+            end
+        elseif type(cost) == "number" then
+            cost = GetCityCost(cost)
+        end
+    end
+    -- 新手保护期折扣（Day1-5 七折）
+    if RV2 then
+        local nbDiscount = RV2.GetNewbieDiscount(playerData_.day)
+        if nbDiscount < 1.0 then
+            if type(cost) == "table" then
+                cost = {}
+                ---@diagnostic disable-next-line: param-type-mismatch
+                for ck, cv in pairs(cfg.costs[nxt]) do cost[ck] = cv end
+                if cost.money then
+                    cost.money = math.floor(cost.money * nbDiscount)
+                end
+            elseif type(cost) == "number" then
+                cost = math.floor(cost * nbDiscount)
+            end
+        end
+    end
+    -- P1: 员工建议折扣（团队→升级费用减免）
+    local staffDiscPct = 0
+    local staffDiscWho = nil
+    local okSD, sdp, sdw = pcall(GetStaffDiscountForUpgrade, key)
+    if okSD and sdp and sdp > 0 then staffDiscPct, staffDiscWho = sdp, sdw end
+    if staffDiscPct > 0 then
+        -- 对 money 字段应用折扣
+        if type(cost) == "table" then
+            cost = {}
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for ck, cv in pairs(cfg.costs[nxt]) do cost[ck] = cv end
+            if cost.money then
+                cost.money = math.floor(cost.money * (1 - staffDiscPct / 100))
+            end
+        elseif type(cost) == "number" then
+            cost = math.floor(cost * (1 - staffDiscPct / 100))
+        end
+    end
+    -- 每日限时折扣（叠加）
+    local dailyDealApplied = false
+    if RV2 and RV2.GetDailyDiscount then
+        local dd = RV2.GetDailyDiscount()
+        if dd and dd.key == key and not dd.used then
+            if type(cost) == "table" then
+                if cost.money then
+                    cost.money = math.floor(cost.money * (100 - dd.pct) / 100)
+                end
+            elseif type(cost) == "number" then
+                cost = math.floor(cost * (100 - dd.pct) / 100)
+            end
+            dailyDealApplied = true
+        end
+    end
     if not CanAffordCost(cost) then return end
     -- 记录升级前的联动（用于完成时检测新联动激活）
     upgradeSynergiesBefore_ = {}
     local oldSynergies = CalcUpgradeSynergies()
+    ---@diagnostic disable-next-line: param-type-mismatch
     for _, s in ipairs(oldSynergies) do upgradeSynergiesBefore_[s.name] = true end
     local ok, payDesc = TryPayCost(cost)
     if not ok then return end
+    if dailyDealApplied then
+        if RV2 and RV2.MarkDailyDiscountUsed then RV2.MarkDailyDiscountUsed(key) end
+        AddLog("🏷️ 限时特惠已使用！节省了大笔开支！")
+    end
+    if staffDiscPct > 0 then
+        AddLog("👷 " .. (staffDiscWho or "员工") .. "帮忙省了" .. staffDiscPct .. "%费用！")
+    end
     if IsCoupActive() then
         AddLog("🪖 政变期间升级，支付了" .. payDesc)
     end
     -- 启动升级计时器
     local buildTime = CalcUpgradeTime(cost, key)
+    local daysNeeded = CalcUpgradeDaysNeeded(cost, key)
     activeUpgrade_ = key
     upgradeTotalTime_ = buildTime
     upgradeTimeLeft_ = buildTime
     upgradeCost_ = cost  -- 记录费用，用于日志
+    -- 跨日建造：高级升级需要等待1-2天
+    if daysNeeded > 0 then
+        upgradeCompletionDay_ = (playerData_.day or 1) + daysNeeded
+        upgradeTimeLeft_ = -1  -- 标记为跨日模式，不用实时计时
+        AddLog("🏗️ 大工程启动！预计第" .. upgradeCompletionDay_ .. "天完工（跨日建造）")
+    else
+        upgradeCompletionDay_ = nil
+    end
     CafeAnimEvents.Push("upgrade_start")
     PlaySFX("upgrade")
     AddLog(cfg.icon .. " " .. cfg.name .. " 开始升级 (" .. FormatUpgradeTime(buildTime) .. ")")
@@ -1016,9 +2070,16 @@ function CompleteUpgrade()
         return
     end
 
-    CafeAnimEvents.Push("upgrade_complete")
-    -- 应用升级效果
-    playerData_.reputation = playerData_.reputation + 5
+    -- 🔒 安全保障：无论中间逻辑是否崩溃，升级状态一定被清除
+    local function DoCompleteUpgrade()
+        CafeAnimEvents.Push("upgrade_complete")
+        -- P0-2：记录升级前收入（用于效果卡显示差值）
+        local incomeBeforeUpgrade_ = 0
+        ---@diagnostic disable-next-line: assign-type-mismatch
+        pcall(function() incomeBeforeUpgrade_ = CalcDailyIncome() end)
+
+        -- 应用升级效果
+        playerData_.reputation = (playerData_.reputation or 0) + 5
     if key == "computer" then playerData_.computers = playerData_.computers + 1
     elseif key == "chair" then playerData_.chairLevel = playerData_.chairLevel + 1
     elseif key == "net" then playerData_.netSpeed = playerData_.netSpeed + 1
@@ -1049,6 +2110,8 @@ function CompleteUpgrade()
         PlaySFX("upgrade")
     end
     PlaySFX("level_up")
+    -- 微反馈：升级完成金色脉冲
+    pcall(MFX_UpgradeFlash)
     -- 委托追踪
     playerData_.questUpgradeCount = (playerData_.questUpgradeCount or 0) + 1
     local cost = upgradeCost_ or 0
@@ -1123,6 +2186,7 @@ function CompleteUpgrade()
     -- ── 联动激活反馈 ──
     local oldSynergyNames = upgradeSynergiesBefore_ or {}
     local newSynergies = CalcUpgradeSynergies()
+    ---@diagnostic disable-next-line: param-type-mismatch
     for _, s in ipairs(newSynergies) do
         if not oldSynergyNames[s.name] then
             AddLog("🔗 【联动激活】" .. s.name .. " — " .. s.desc)
@@ -1131,7 +2195,45 @@ function CompleteUpgrade()
         end
     end
 
-    -- 清除升级状态
+    -- P2: 升级里程碑 → 触发市场奖励事件
+    local okME, milestoneEvent = pcall(CheckUpgradeMilestoneMarketEvent)
+    if okME and milestoneEvent then
+        AddLog("🎁 【市场联动】" .. milestoneEvent)
+        PlaySFX("reward")
+    end
+
+    -- P0-1 新手引导：完成第一次升级，step 1→2
+    if (playerData_.tutorialStep or 0) == 1 then
+        playerData_.tutorialStep = 2
+        AddLog("📌 【新手任务】太棒了！升级完成！再结束一天，去日记里看看效果。")
+    end
+
+    -- P0-2 升级效果卡：记录升级完成，供 UI 展示反馈弹窗
+    local incomeAfterUpgrade_ = 0
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    pcall(function() incomeAfterUpgrade_ = CalcDailyIncome() end)
+    pendingUpgradeFeedback_ = {
+        key = key,
+        icon = cfg.icon or "🔧",
+        name = cfg.name or key,
+        level = GetUpgradeCur(key),
+        timestamp = gameTime_,
+        incomeDelta = incomeAfterUpgrade_ - incomeBeforeUpgrade_,
+    }
+
+        -- 彩蛋：升级完成触发
+        local eggOk, eggErr = pcall(function() require("EasterEggs").OnUpgradeComplete(key) end)
+        if not eggOk then log:Write(LOG_WARNING, "[CompleteUpgrade] EasterEggs error: " .. tostring(eggErr)) end
+    end -- DoCompleteUpgrade
+
+    -- 执行升级逻辑（pcall 保护，确保清理一定执行）
+    local ok, err = pcall(DoCompleteUpgrade)
+    if not ok then
+        log:Write(LOG_ERROR, "[CompleteUpgrade] CRASHED during upgrade '" .. tostring(key) .. "': " .. tostring(err))
+        AddLog("⚠️ 升级完成时出现异常，已安全恢复")
+    end
+
+    -- 🔒 无论是否崩溃，升级状态一定被清除
     activeUpgrade_ = nil
     upgradeTimeLeft_ = 0
     upgradeTotalTime_ = 0
@@ -1186,13 +2288,11 @@ function StartCafeChallenge(npcData)
     elseif ratio >= 0.9 then challengeMultiplier_ = 1.5
     else challengeMultiplier_ = 1.2 end
 
-    -- 随机选3个不重复的小游戏模式
-    local allModes = { "game2048", "gomoku", "memoryMatch" }
-    for i = #allModes, 2, -1 do
-        local j = math.random(1, i)
-        allModes[i], allModes[j] = allModes[j], allModes[i]
-    end
-    challengeModes_ = { allModes[1], allModes[2], allModes[3] }
+    -- Ban/Pick 初始化：进入 ban_pick 阶段让玩家先Ban
+    challengePlayerBan_ = nil
+    challengeNPCBan_ = nil
+    challengeBanPhase_ = "player"
+    challengeModes_ = {}
 
     PlaySFX("event")
     AddLog("⚔️ 向 " .. (npcData.emoji or "") .. " " .. (npcData.name or "???") .. " 发起踢馆挑战！")
@@ -1216,8 +2316,8 @@ function ConfirmChallengeWager(wagerType, wagerAmount)
 
     challengeWagerType_ = wagerType
     challengeWagerAmount_ = wagerAmount
-    challengePhase_ = "round_intro"
-    challengeRound_ = 1
+    challengePhase_ = "ban_pick"
+    challengeBanPhase_ = "player"
     PlaySFX("click")
     BuildUI()
 end
@@ -1228,17 +2328,72 @@ function StartChallengeRound()
     if not mode then FinishChallenge(); return end
 
     challengePhase_ = "playing"
-    -- 启动对应小游戏
-    StartMiniGame(mode)
+    -- 设置训练队员（踢馆时用第一个队员或虚拟占位）
+    if not trainMember_ then
+        if teamMembers_ and #teamMembers_ > 0 then
+            trainMember_ = teamMembers_[1]
+        else
+            trainMember_ = { name = "选手", emoji = "🎮", trait = "踢馆中", skill = 50, mood = 70 }
+        end
+    end
+    -- 启动训练游戏（复用训练系统）
+    trainMode_ = mode
+    trainPhase_ = "ready"
+    trainActive_ = false
+    trainTimer_ = 0
+    trainScore_ = 0
+    -- 重置各模式分数，防止 Bo3 跨轮分数泄漏
+    quizCorrect_ = 0
+    reactCorrect_ = 0
+    routeCorrect_ = 0
+    commCorrect_ = 0
 
+    -- 训练走正常 ready→playing→done 流程（玩家点按钮开始）
     BuildUI()
 end
 
---- 单轮踢馆结束（小游戏完成后调用）
+--- 玩家执行 Ban（踢馆 Ban/Pick 阶段）
+function ChallengePlayerBan(mode)
+    challengePlayerBan_ = mode
+    challengeBanPhase_ = "npc"
+    -- NPC 自动 Ban：根据难度选一个对NPC不利的模式（随机从剩余模式中选）
+    local remaining = {}
+    for _, m in ipairs(challengeAllModes_) do
+        if m ~= mode then table.insert(remaining, m) end
+    end
+    -- NPC 策略：高难度NPC倾向ban掉玩家擅长的（这里简化为随机）
+    challengeNPCBan_ = remaining[math.random(1, #remaining)]
+    challengeBanPhase_ = "done"
+
+    -- 从剩余3个模式中随机排列作为Bo3赛程
+    local finalModes = {}
+    for _, m in ipairs(challengeAllModes_) do
+        if m ~= challengePlayerBan_ and m ~= challengeNPCBan_ then
+            table.insert(finalModes, m)
+        end
+    end
+    -- 随机打乱顺序
+    for i = #finalModes, 2, -1 do
+        local j = math.random(1, i)
+        finalModes[i], finalModes[j] = finalModes[j], finalModes[i]
+    end
+    challengeModes_ = finalModes
+
+    PlaySFX("click")
+    BuildUI()
+end
+
+--- 单轮踢馆结束（训练完成后调用）
 function FinishChallengeRound()
     local mode = challengeModes_[challengeRound_]
-    -- 从小游戏获取玩家分数
-    local playerScore = GetMiniGameScore()
+    -- 从训练系统获取玩家分数
+    local playerScore = 0
+    if mode == "aim" then playerScore = trainScore_ or 0
+    elseif mode == "quiz" then playerScore = quizCorrect_ or 0
+    elseif mode == "memory" then playerScore = routeCorrect_ or 0
+    elseif mode == "react" then playerScore = reactCorrect_ or 0
+    elseif mode == "comm" then playerScore = commCorrect_ or 0
+    end
 
     -- 综合分加成：玩家网吧综合分 vs NPC 综合分
     local cafeScore = CalcCafeScore()
@@ -1249,14 +2404,12 @@ function FinishChallengeRound()
     local rawPlayerScore = playerScore
     playerScore = math.max(0, playerScore + bonus)
 
-    -- 计算NPC分数（基于难度和小游戏类型）
-    local thresholds = { game2048 = 400, gomoku = 6, memoryMatch = 12 }
-    local base = thresholds[mode] or 5
-    local npcScore = math.floor(base * challengeDifficulty_ + math.random(-2, 2))
+    -- 计算NPC分数（基于难度和训练模式基准）
+    local base = (CHALLENGE_NPC_THRESHOLDS or {})[mode] or 5
+    local npcScore = math.floor(base * challengeDifficulty_ + math.random(-1, 1))
     npcScore = math.max(1, npcScore)
     challengeNPCScore_ = npcScore
 
-    -- 反应模式：正确数越高越好（和其它模式一致）
     -- 平局时判定为玩家胜（主场优势）
     local playerWin = (playerScore >= npcScore)
     if playerWin then
@@ -1278,8 +2431,7 @@ function FinishChallengeRound()
         playerWin = playerWin,
     }
 
-    -- 清理小游戏和训练状态
-    miniGame_ = nil
+    -- 清理训练状态
     trainMember_ = nil; trainActive_ = false; trainPhase_ = "ready"; trainMode_ = "select"
 
     -- 检查是否已分出胜负（Bo3 先到2胜）
@@ -1366,6 +2518,9 @@ function FinishChallenge()
     challengePlayerWins_ = 0
     challengeNPCWins_ = 0
     challengeModes_ = {}
+    challengePlayerBan_ = nil
+    challengeNPCBan_ = nil
+    challengeBanPhase_ = "player"
 
     PlayBGM("manage")
     currentPhase_ = PHASE_EVENT

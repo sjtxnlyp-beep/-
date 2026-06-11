@@ -30,7 +30,7 @@ trainActiveCell_ = 0
 trainTargetTimer_ = 0
 trainTargetTimeout_ = 1.4
 trainPhase_ = "ready"
-trainMode_ = "select"  -- "select" | "aim" | "quiz" | "react" | "memory"
+trainMode_ = "select"  -- "select" | "aim" | "quiz" | "react" | "memory" | "comm"
 
 -- 反应训练
 reactRound_ = 0
@@ -60,7 +60,57 @@ memoryShowTimer_ = 0
 memoryPhaseState_ = "show" -- "show" | "input" | "result"
 MEMORY_ICONS = { "⚔️", "🛡️", "💣", "🔫", "🎯", "💉", "🔥", "⚡" }
 
--- 战术问答题库
+-- 路线规划（空间路径记忆）— 替代旧记忆序列的展示层
+ROUTE_GRID = 5             -- 5×5 网格
+routePath_ = {}            -- 正确路径格子索引列表
+routePlayerPath_ = {}      -- 玩家输入的路径
+routeShowIdx_ = 0          -- 当前高亮到第几步
+routeShowTimer_ = 0
+routePhaseState_ = "show"  -- "show" | "input" | "result"
+routeRound_ = 0
+routeTotalRounds_ = 5
+routeCorrect_ = 0
+routeLen_ = 4              -- 当前路径长度（递增）
+
+-- 指挥通讯（信息流筛选）
+commRound_ = 0
+commTotalRounds_ = 8
+commCorrect_ = 0
+commMessages_ = {}         -- 当前轮所有滚动消息 {text, isTarget, id}
+commTargetId_ = ""         -- 当前轮需要点击的目标消息id
+commPhaseState_ = "wait"   -- "wait" | "scroll" | "result"
+commTimer_ = 0
+commSpeed_ = 1.0           -- 滚动速度倍率（递增）
+commScrollY_ = 0           -- 滚动偏移量
+commAnswered_ = false
+commMissed_ = false        -- 是否错过了目标
+
+-- 指挥通讯消息池
+COMM_TARGETS = {
+    "A点有人架枪！快来支援！",
+    "B门闪光弹准备！3 2 1投！",
+    "别peek了！等烟散再动！",
+    "中路有狙！绕侧面走！",
+    "他在换弹！现在冲！",
+    "回撤回撤！他们4个人！",
+    "放C4！我来掩护你！",
+    "注意脚步声！有人摸过来了！",
+    "集合中路！一波推了！",
+    "拉开距离！他有霰弹枪！",
+}
+COMM_NOISE = {
+    "这把经济够不够？", "有人要开麦吗？",
+    "刚才那个击杀太帅了", "我去B点看看",
+    "他们可能要存枪了", "我这边安全",
+    "等下一波再打吧", "谁能给我让个位？",
+    "我要去厕所等下", "这局我要拿MVP",
+    "老板加个钟呗", "网速有点卡啊",
+    "隔壁桌太吵了", "今天状态不行",
+    "教练说了要打配合", "下一局换个地图？",
+    "有没有人要喝水", "我耳机有杂音",
+}
+
+-- 战术问答题库（改为情境复盘格式）
 QUIZ_POOL = {
     -- ── 基础战术 (1-12) ──
     { q = "三角洲中遇到敌人架枪封路，最佳战术是？",
@@ -170,120 +220,180 @@ midDecisionBonus_ = 0    -- 中局决策带来的加成
 midDecisionNarrative_ = nil  -- 决策结果叙事文本
 matchInterlude_ = nil        -- 赛间互动事件数据
 
--- 中局情境池
+-- 中局情境池（每条带 tags 标记适用的游戏类型叙事风格）
+-- tags: "all"=通用, "tactical"=三角洲, "fps"=CS:GO/Valorant, "moba"=Dota2/LoL, "br"=PUBG
 MID_DECISION_POOL = {
-    { situation = "比赛进入中段，对方突然换了激进打法，你的MVP被集火压制！",
+    -- ══════════ 通用场景（适用于所有游戏类型） ══════════
+    { tags = "all", situation = "比赛进入中段，对方突然换了激进打法，你的MVP被集火压制！",
       choices = {
           { text = "🔄 换人替补上场", desc = "让MVP下场休息，换替补顶上", bonus = -10, narrative = "替补经验不足，但MVP保住了状态。" },
           { text = "🛡️ 全队回防保护MVP", desc = "牺牲进攻换取防守稳定", bonus = 5, narrative = "全队拉回防守，稳住了局面。" },
           { text = "🔥 以攻代守反压制", desc = "趁对方进攻阵型前压反打", bonus = 20, risk = true, narrative_win = "大胆反攻奏效，对面阵型被撕裂！", narrative_fail = "反攻失败，被对面抓住空档打了反击。" },
       },
     },
-    { situation = "队员耳机突然出了问题，队内语音断断续续。比赛不能暂停！",
+    { tags = "all", situation = "队员耳机突然出了问题，队内语音断断续续。比赛不能暂停！",
       choices = {
           { text = "📢 用手势指挥", desc = "放弃语音，改用约定好的手势", bonus = -5, narrative = "手势配合虽然不完美，但勉强维持了阵型。" },
           { text = "🎯 各自为战", desc = "每个人按训练时的习惯独立作战", bonus = 0, narrative = "各自为战，发挥看个人实力。" },
           { text = "⏸️ 假装技术问题要求暂停", desc = "冒着被判罚的风险争取时间", bonus = 15, risk = true, narrative_win = "裁判同意短暂暂停，耳机问题解决了！", narrative_fail = "裁判识破了，判罚一局，对面士气大振。" },
       },
     },
-    { situation = "你发现对手有个固定套路——每次都从B点突破。要不要针对性布防？",
-      choices = {
-          { text = "🎯 集中B点埋伏", desc = "赌对方继续老套路", bonus = 25, risk = true, narrative_win = "对方果然还走B点，一波团灭！", narrative_fail = "对方突然改走A点，B点白守了。" },
-          { text = "⚖️ A/B平均分配", desc = "稳妥策略，两点都防", bonus = 5, narrative = "两点均分防守，没有漏洞，稳扎稳打。" },
-          { text = "🗣️ 放烟雾弹引诱", desc = "在A点制造动静引对方上钩", bonus = 15, risk = true, narrative_win = "烟雾弹完美引诱，对方被骗到A点！", narrative_fail = "对方没上当，直接冲B点得手。" },
-      },
-    },
-    { situation = "关键局！双方比分胶着，队员情绪紧张，有人开始手抖了。",
+    { tags = "all", situation = "关键局！双方比分胶着，队员情绪紧张，有人开始手抖了。",
       choices = {
           { text = "😤 怒吼鼓劲", desc = "大声呐喊给队友打气", bonus = 10, narrative = "一声怒吼让队友重新集中精神！" },
           { text = "😎 冷静分析", desc = "压低声音分析敌方弱点", bonus = 8, narrative = "冷静的分析让大家找到了突破口。" },
           { text = "🃏 讲笑话缓解", desc = "用幽默化解紧张气氛", bonus = 15, risk = true, narrative_win = "一个笑话让大家放松下来，发挥超常！", narrative_fail = "笑话时机不对，队友觉得你不认真，更紧张了。" },
       },
     },
-    { situation = "对方王牌选手突然断网了！裁判给了3分钟暂停。你怎么利用？",
+    { tags = "all", situation = "对方王牌选手突然断网了！裁判给了3分钟暂停。你怎么利用？",
       choices = {
           { text = "📋 重新部署战术", desc = "利用时间调整进攻计划", bonus = 12, narrative = "利用间歇调整了战术，更加有针对性。" },
           { text = "💪 鼓舞士气", desc = "告诉队员这是翻盘机会", bonus = 8, narrative = "队员精神振奋，准备好了最后冲刺。" },
           { text = "🕵️ 偷看对方屏幕", desc = "趁乱偷看对面的阵容配置", bonus = 25, risk = true, narrative_win = "偷偷瞥到了对方的战术板，关键信息到手！", narrative_fail = "被裁判抓个正着，警告一次，队员信心受挫。" },
       },
     },
-    -- ====== v6 新增：网吧主题决策场景 ======
-    { situation = "比赛打到一半，你网吧突然停电了！发电机还有油，但需要有人去启动。",
-      choices = {
-          { text = "⚡ 亲自去启动发电机", desc = "你跑去后院拉发电机，队员自己打一分钟", bonus = -8, narrative = "发电机轰隆启动，虽然丢了一分钟指挥，但电力恢复了。" },
-          { text = "📱 让Mama Blessing帮忙", desc = "喊门口卖烤鸡的Mama帮忙启动", bonus = 10, narrative = "Mama Blessing三下五除二就把发电机拉响了，你一秒都没离开指挥位！" },
-          { text = "🔋 切换到手机热点硬撑", desc = "冒着高延迟继续打", bonus = 20, risk = true, narrative_win = "手机信号意外地好，延迟居然能接受！对面以为你们断网了放松警惕，反被偷袭！", narrative_fail = "手机信号太差，延迟飙到500ms，队员操作全部变形。" },
-      },
-    },
-    { situation = "隔壁桌的网吧客人在大声打电话，严重影响队员集中精神。你怎么处理？",
-      choices = {
-          { text = "🔇 礼貌劝客人小声", desc = "用好言好语请他压低音量", bonus = 5, narrative = "客人不好意思地压低了声音，环境安静了不少。" },
-          { text = "🎧 给队员换降噪耳机", desc = "拿出备用的好耳机给队员用", bonus = 15, narrative = "换上降噪耳机，外界噪音全部隔绝，队员沟通更清晰了！" },
-          { text = "🚪 直接请客人出去", desc = "强硬驱逐客人保比赛环境", bonus = 20, risk = true, narrative_win = "客人虽然不爽但走了，比赛环境瞬间清净，队员发挥暴涨！", narrative_fail = "客人大吵大闹拒绝走，场面一度混乱，队员更分心了。" },
-      },
-    },
-    { situation = "你注意到对手队伍用的是最新款电竞外设，而你的队员用的是网吧标配键鼠。队员有点自卑。",
-      choices = {
-          { text = "💪 强调技术比装备重要", desc = "告诉队员：好的剑客不挑剑", bonus = 8, narrative = "一番话让队员重拾信心：'我们用的是灵魂！'" },
-          { text = "🖱️ 拿出私藏的好鼠标", desc = "把你压箱底的机械键盘拿出来给MVP用", bonus = 18, narrative = "MVP换上机械键盘后手感大变，反应速度明显提升！" },
-          { text = "😏 嘲讽对手是装备党", desc = "大声说'再好的装备也救不了菜'激怒对方", bonus = 25, risk = true, narrative_win = "对面被激怒后失去冷静，连续犯错，你的心理战大获成功！", narrative_fail = "对面不吃这套，反而被激发了斗志，打得更凶了。" },
-      },
-    },
-    { situation = "比赛直播观众飙到了500人！弹幕疯狂刷屏，有人说'Dragon Force必胜'，也有人刷'菜鸡互啄'。",
+    { tags = "all", situation = "比赛直播观众飙到了500人！弹幕疯狂刷屏，有人说'Dragon Force必胜'，也有人刷'菜鸡互啄'。",
       choices = {
           { text = "📺 把弹幕投屏给队员看", desc = "让队员看到粉丝的支持", bonus = 15, risk = true, narrative_win = "看到铺天盖地的'Dragon Force加油'，队员热血沸腾，发挥超常！", narrative_fail = "队员看到'菜鸡互啄'的弹幕，心态直接炸了。" },
           { text = "🔕 关掉弹幕专注比赛", desc = "比赛时不看弹幕，赛后再看", bonus = 8, narrative = "屏蔽外界干扰，队员全神贯注在比赛上。" },
           { text = "📢 让Kwame帮忙打字互动", desc = "让老顾客在弹幕里帮忙炒气氛", bonus = 12, narrative = "Kwame在弹幕里疯狂带节奏，观众越来越多，场面火热！" },
       },
     },
-    { situation = "中场休息时，Mama Blessing端来一锅刚出炉的Jollof饭。队员们饿了一上午了。",
+    { tags = "all", situation = "比赛直播观众发现了对手疑似使用Bug利用，弹幕炸了！裁判还没介入。",
+      choices = {
+          { text = "🖐️ 主动暂停申诉", desc = "向裁判举报并申请暂停", bonus = 10, narrative = "裁判确认了Bug，判对方该局负，公平得到了维护。" },
+          { text = "😤 不管Bug正面赢他", desc = "用绝对实力碾压，让Bug也救不了对手", bonus = 25, risk = true, narrative_win = "即使对手用Bug也挡不住Dragon Force的碾压！弹幕疯狂刷'太强了'！", narrative_fail = "Bug优势太大，正面硬拼还是吃了亏。" },
+          { text = "📱 让经理联系赛事方", desc = "场外通过官方渠道反映情况", bonus = 8, narrative = "经理联系了赛事方，虽然本局结果不变，但下局对手被警告。" },
+      },
+    },
+    -- ══════════ 网吧主题通用场景 ══════════
+    { tags = "all", situation = "比赛打到一半，你网吧突然停电了！发电机还有油，但需要有人去启动。",
+      choices = {
+          { text = "⚡ 亲自去启动发电机", desc = "你跑去后院拉发电机，队员自己打一分钟", bonus = -8, narrative = "发电机轰隆启动，虽然丢了一分钟指挥，但电力恢复了。" },
+          { text = "📱 让Mama Blessing帮忙", desc = "喊门口卖烤鸡的Mama帮忙启动", bonus = 10, narrative = "Mama Blessing三下五除二就把发电机拉响了，你一秒都没离开指挥位！" },
+          { text = "🔋 切换到手机热点硬撑", desc = "冒着高延迟继续打", bonus = 20, risk = true, narrative_win = "手机信号意外地好，延迟居然能接受！对面以为你们断网了放松警惕，反被偷袭！", narrative_fail = "手机信号太差，延迟飙到500ms，队员操作全部变形。" },
+      },
+    },
+    { tags = "all", situation = "隔壁桌的网吧客人在大声打电话，严重影响队员集中精神。你怎么处理？",
+      choices = {
+          { text = "🔇 礼貌劝客人小声", desc = "用好言好语请他压低音量", bonus = 5, narrative = "客人不好意思地压低了声音，环境安静了不少。" },
+          { text = "🎧 给队员换降噪耳机", desc = "拿出备用的好耳机给队员用", bonus = 15, narrative = "换上降噪耳机，外界噪音全部隔绝，队员沟通更清晰了！" },
+          { text = "🚪 直接请客人出去", desc = "强硬驱逐客人保比赛环境", bonus = 20, risk = true, narrative_win = "客人虽然不爽但走了，比赛环境瞬间清净，队员发挥暴涨！", narrative_fail = "客人大吵大闹拒绝走，场面一度混乱，队员更分心了。" },
+      },
+    },
+    { tags = "all", situation = "你注意到对手队伍用的是最新款电竞外设，而你的队员用的是网吧标配键鼠。队员有点自卑。",
+      choices = {
+          { text = "💪 强调技术比装备重要", desc = "告诉队员：好的剑客不挑剑", bonus = 8, narrative = "一番话让队员重拾信心：'我们用的是灵魂！'" },
+          { text = "🖱️ 拿出私藏的好鼠标", desc = "把你压箱底的机械键盘拿出来给MVP用", bonus = 18, narrative = "MVP换上机械键盘后手感大变，反应速度明显提升！" },
+          { text = "😏 嘲讽对手是装备党", desc = "大声说'再好的装备也救不了菜'激怒对方", bonus = 25, risk = true, narrative_win = "对面被激怒后失去冷静，连续犯错，你的心理战大获成功！", narrative_fail = "对面不吃这套，反而被激发了斗志，打得更凶了。" },
+      },
+    },
+    { tags = "all", situation = "中场休息时，Mama Blessing端来一锅刚出炉的Jollof饭。队员们饿了一上午了。",
       choices = {
           { text = "🍚 让队员吃饱再打", desc = "吃完Mama的手艺再上场", bonus = 12, narrative = "队员吃饱喝足，精神抖擞地回到赛场，手速明显提升！" },
           { text = "⏰ 只让吃一口赶紧回来", desc = "每人两口饭就回去热手", bonus = 5, narrative = "简单补充了能量，没有浪费太多热身时间。" },
           { text = "🚫 比赛结束再吃", desc = "先饿着肚子把比赛打完", bonus = 20, risk = true, narrative_win = "空腹状态反而让队员更加专注和警觉，打出了不可思议的表现！", narrative_fail = "队员饥饿导致注意力下降，关键时刻手速跟不上。" },
       },
     },
-    { situation = "你发现网吧的路由器过热了，网络延迟开始波动。继续打还是冒险重启路由器？",
+    { tags = "all", situation = "你发现网吧的路由器过热了，网络延迟开始波动。继续打还是冒险重启路由器？",
       choices = {
           { text = "🔄 快速重启路由器", desc = "断网30秒博更稳定的连接", bonus = 20, risk = true, narrative_win = "路由器重启后网速飞起，延迟从80ms降到20ms，队员操作如丝般顺滑！", narrative_fail = "路由器启动慢了，掉线超过一分钟，回来时已经落后两局了。" },
           { text = "🧊 用冰块给路由器降温", desc = "土办法：找袋冰块放旁边物理降温", bonus = 10, narrative = "冰块降温效果不错，延迟稳定在可接受范围内。" },
           { text = "😤 忍着延迟继续打", desc = "用意志力克服网络劣势", bonus = 3, narrative = "虽然延迟不稳定，但队员展现了钢铁般的意志。" },
       },
     },
-    -- ── 三角洲 & 多游戏拓展情境 ──
-    { situation = "三角洲模式中，队伍被压在A点外，烟雾即将消散，必须做出决断！",
+    -- ══════════ 战术射击专属（三角洲/CS:GO/Valorant） ══════════
+    { tags = "tactical,fps", situation = "队伍被压在A点外，烟雾即将消散，必须做出决断！",
       choices = {
           { text = "💨 再补一颗烟强突", desc = "用最后的烟雾弹创造进攻窗口", bonus = 15, risk = true, narrative_win = "烟雾弹完美落点，队伍趁烟冲入点内一举拿下！", narrative_fail = "烟雾弹偏了，队伍暴露在交叉火力下损失惨重。" },
           { text = "🔄 转攻B点", desc = "放弃A点，快速转移到B点进攻", bonus = 10, narrative = "果断转点，对方来不及回防，B点轻松拿下。" },
           { text = "⏳ 等烟散了硬刚", desc = "正面对枪，用实力说话", bonus = 5, narrative = "虽然没了掩护，但队员枪法过硬，勉强拿下了交火。" },
       },
     },
-    { situation = "MOBA比赛中己方大龙被偷！团队士气受到严重打击，怎么稳住？",
+    { tags = "tactical,fps", situation = "你发现对手有个固定套路——每次都从B点突破。要不要针对性布防？",
       choices = {
-          { text = "📢 教练暂停喊话", desc = "申请暂停，让教练重新布置战术", bonus = 12, narrative = "教练的冷静分析让队员重新振作，防守反击打得有声有色。" },
-          { text = "🏰 全员龟缩高地", desc = "放弃外围资源，死守高地塔", bonus = 8, narrative = "高地防守成功，拖到了大龙buff消失。" },
-          { text = "🔥 趁对方打龙残血反打", desc = "对方打完龙血量不满，强行开团", bonus = 25, risk = true, narrative_win = "对方果然残血，一波团灭翻盘！全场欢呼！", narrative_fail = "对方虽然残血但阵型完整，反打失败雪上加霜。" },
+          { text = "🎯 集中B点埋伏", desc = "赌对方继续老套路", bonus = 25, risk = true, narrative_win = "对方果然还走B点，一波团灭！", narrative_fail = "对方突然改走A点，B点白守了。" },
+          { text = "⚖️ A/B平均分配", desc = "稳妥策略，两点都防", bonus = 5, narrative = "两点均分防守，没有漏洞，稳扎稳打。" },
+          { text = "🗣️ 放烟雾弹引诱", desc = "在A点制造动静引对方上钩", bonus = 15, risk = true, narrative_win = "烟雾弹完美引诱，对方被骗到A点！", narrative_fail = "对方没上当，直接冲B点得手。" },
       },
     },
-    { situation = "大逃杀决赛圈只剩3支队伍，毒圈马上缩小，你的位置不在安全区！",
-      choices = {
-          { text = "🚗 开车强行冲进圈", desc = "用载具高速突入安全区", bonus = 18, risk = true, narrative_win = "载具冲锋出其不意，率先抢到最佳位置！", narrative_fail = "载具被集火打爆，队伍在毒圈边缘团灭。" },
-          { text = "🚶 贴边慢慢摸进去", desc = "沿着毒圈边缘低调进圈", bonus = 10, narrative = "稳扎稳打摸进了安全区，虽然位置一般但至少安全。" },
-          { text = "🎯 先打前面的队伍再进圈", desc = "消灭挡路的队伍再转移", bonus = 8, narrative = "和对手交火后虽然进了圈，但暴露了位置。" },
-      },
-    },
-    { situation = "FPS比赛中对方使用了从未见过的新战术，队员明显不适应！",
+    { tags = "tactical,fps", situation = "对方使用了从未见过的新战术，队员明显不适应！",
       choices = {
           { text = "📋 临时改变阵型应对", desc = "根据对方战术即时调整站位", bonus = 15, narrative = "灵活应变，新阵型有效克制了对方的套路。" },
           { text = "🎥 死亡回放分析弱点", desc = "利用死亡回放研究对方战术破绽", bonus = 20, risk = true, narrative_win = "通过回放找到了破绽，下一局精准破解了对方战术！", narrative_fail = "分析花了太多精力，队员精神疲惫反而影响了发挥。" },
           { text = "💪 不管战术，拼个人实力", desc = "用纯粹的枪法和反应速度硬碰硬", bonus = 5, narrative = "虽然战术上吃亏，但个人实力弥补了部分差距。" },
       },
     },
-    { situation = "比赛直播观众发现了对手疑似使用Bug利用，弹幕炸了！裁判还没介入。",
+    { tags = "fps", situation = "经济局到了，队伍只有手枪和少量装备费。对面满配！",
       choices = {
-          { text = "🖐️ 主动暂停申诉", desc = "向裁判举报并申请暂停", bonus = 10, narrative = "裁判确认了Bug，判对方该局负，公平得到了维护。" },
-          { text = "😤 不管Bug正面赢他", desc = "用绝对实力碾压，让Bug也救不了对手", bonus = 25, risk = true, narrative_win = "即使对手用Bug也挡不住Dragon Force的碾压！弹幕疯狂刷'太强了'！", narrative_fail = "Bug优势太大，正面硬拼还是吃了亏。" },
-          { text = "📱 让经理联系赛事方", desc = "场外通过官方渠道反映情况", bonus = 8, narrative = "经理联系了赛事方，虽然本局结果不变，但下局对手被警告。" },
+          { text = "🔪 全员买甲冲脸Rush", desc = "手枪甲凯甲冲，博近战击杀攒经济", bonus = 18, risk = true, narrative_win = "手枪Rush成功！近距离打了对面一个措手不及，缴获满配武器！", narrative_fail = "刚冲出去就被对面步枪扫倒三个，经济雪上加霜。" },
+          { text = "💰 全员存枪到下一局", desc = "这局直接投降保经济", bonus = 5, narrative = "牺牲一局换来下一局的全员满配，战略性放弃。" },
+          { text = "🎯 只买一把主武器给枪王", desc = "把钱集中给最强的队员", bonus = 12, narrative = "枪王拿着唯一一把步枪击杀两人，虽然还是输了但攒够了下局经济。" },
+      },
+    },
+    { tags = "tactical", situation = "三角洲突击模式，队伍需要在30秒内拆弹！掩护者只剩一人！",
+      choices = {
+          { text = "💣 全员扑向炸弹", desc = "不管掩护，争分夺秒拆除", bonus = 20, risk = true, narrative_win = "以最快速度拆除了炸弹，对方救援来不及！", narrative_fail = "拆弹时被背后偷袭，功亏一篑。" },
+          { text = "🛡️ 先清残余再拆", desc = "确保安全再动手", bonus = 8, narrative = "多花了几秒清理残余，安全拆除了炸弹。" },
+          { text = "🎭 假拆骗枪", desc = "拆一半停下来，引对方露头", bonus = 15, risk = true, narrative_win = "对方果然着急露头被打倒，随后从容拆弹！", narrative_fail = "假拆浪费了宝贵时间，炸弹爆炸了。" },
+      },
+    },
+    -- ══════════ MOBA 专属（Dota2/英雄联盟） ══════════
+    { tags = "moba", situation = "己方大龙(Roshan/Baron)被对面偷了！团队士气受到严重打击。",
+      choices = {
+          { text = "📢 教练暂停喊话", desc = "申请暂停，让教练重新布置战术", bonus = 12, narrative = "教练的冷静分析让队员重新振作，防守反击打得有声有色。" },
+          { text = "🏰 全员龟缩高地", desc = "放弃外围资源，死守高地塔", bonus = 8, narrative = "高地防守成功，拖到了大龙buff消失。" },
+          { text = "🔥 趁对方打龙残血反打", desc = "对方打完龙血量不满，强行开团", bonus = 25, risk = true, narrative_win = "对方果然残血，一波团灭翻盘！全场欢呼！", narrative_fail = "对方虽然残血但阵型完整，反打失败雪上加霜。" },
+      },
+    },
+    { tags = "moba", situation = "对线期结束，队伍落后3000经济。打团还是继续发育？",
+      choices = {
+          { text = "🗡️ 抱团入侵野区", desc = "五人入侵对方野区抢资源+逼团", bonus = 18, risk = true, narrative_win = "成功入侵野区击杀落单打野，经济差一下缩小！", narrative_fail = "对方早有埋伏，团灭在对方野区，经济差越拉越大。" },
+          { text = "🌾 分线带推等发育", desc = "避免正面冲突，利用兵线缩小差距", bonus = 8, narrative = "稳扎稳打分推，15分钟后装备差距缩小到可以打团。" },
+          { text = "🎯 Gank对面C位", desc = "集中力量多次击杀对方核心输出", bonus = 15, risk = true, narrative_win = "成功连续击杀对面C位，打崩了对方节奏！", narrative_fail = "对面C位有队友保护，Gank失败反送人头。" },
+      },
+    },
+    { tags = "moba", situation = "30分钟了，双方都是六神装。一波团战决定胜负的时刻到了！",
+      choices = {
+          { text = "🏴 开雾绕后包抄", desc = "买真视+烟雾，绕后切入对方后排", bonus = 20, risk = true, narrative_win = "雾中绕后天衣无缝，瞬间秒杀对方双C，一波推平！", narrative_fail = "被对方插眼发现，绕后变成被包饺子。" },
+          { text = "🛡️ 稳守河道等对方犯错", desc = "抱团控视野，等对面先手", bonus = 10, narrative = "耐心等待终于等到对方阵型分散，抓住机会发起团战。" },
+          { text = "💎 偷对方基地水晶", desc = "派一人单带偷塔，其余牵制", bonus = 25, risk = true, narrative_win = "对面被骗回防，但偷塔速度太快一锤定音！", narrative_fail = "偷塔被回防击杀，4v5团战直接崩盘。" },
+      },
+    },
+    { tags = "moba", situation = "队伍的辅助玩家突然开始莽，连续送了两波人头。队内气氛紧张。",
+      choices = {
+          { text = "🤝 安慰辅助稳定心态", desc = "告诉他没关系，稳住别着急", bonus = 8, narrative = "辅助稳住心态后回归正常发挥，不再送人头了。" },
+          { text = "🔄 换位置让他打别的", desc = "让辅助去单带，让稳的人来辅助", bonus = 12, narrative = "换位后团队配合明显改善，辅助在边路也找到了节奏。" },
+          { text = "😡 直接开骂激励", desc = "用非洲式激将法——'你再送我就让Mama B来打'", bonus = 18, risk = true, narrative_win = "被骂醒了！辅助化悲愤为力量，后面全程神级发挥！", narrative_fail = "辅助心态彻底炸裂，直接摆烂甚至挂机。" },
+      },
+    },
+    -- ══════════ 大逃杀专属（PUBG） ══════════
+    { tags = "br", situation = "决赛圈只剩3支队伍，毒圈马上缩小，你的位置不在安全区！",
+      choices = {
+          { text = "🚗 开车强行冲进圈", desc = "用载具高速突入安全区", bonus = 18, risk = true, narrative_win = "载具冲锋出其不意，率先抢到最佳位置！", narrative_fail = "载具被集火打爆，队伍在毒圈边缘团灭。" },
+          { text = "🚶 贴边慢慢摸进去", desc = "沿着毒圈边缘低调进圈", bonus = 10, narrative = "稳扎稳打摸进了安全区，虽然位置一般但至少安全。" },
+          { text = "🎯 先打前面的队伍再进圈", desc = "消灭挡路的队伍再转移", bonus = 8, narrative = "和对手交火后虽然进了圈，但暴露了位置。" },
+      },
+    },
+    { tags = "br", situation = "落地后发现旁边有另一支队伍也在搜物资，现在只有一把手枪和一个头盔。",
+      choices = {
+          { text = "🏃 立刻转移换点", desc = "放弃当前物资点跑去隔壁搜刮", bonus = 8, narrative = "成功转移到安全区域，虽然物资差点但安全发育。" },
+          { text = "🔫 手枪冲脸拼了", desc = "趁对方还没搜到武器直接冲", bonus = 22, risk = true, narrative_win = "对方还没找到枪就被手枪击倒，缴获了一堆物资！", narrative_fail = "对方运气好先摸到霰弹枪，近距离一枪带走。" },
+          { text = "🐍 猫在角落蹲人", desc = "让对方搜完出门再偷袭", bonus = 15, risk = true, narrative_win = "对方毫无防备走出来被伏击，轻松收割！", narrative_fail = "对方也在蹲你，双方大眼瞪小眼后被第三方渔翁得利。" },
+      },
+    },
+    { tags = "br", situation = "空投来了！就落在队伍附近200米，但明显已经有两支队伍在赶过去。",
+      choices = {
+          { text = "🏎️ 飙车抢空投", desc = "全速载具冲空投，抢到就跑", bonus = 20, risk = true, narrative_win = "比其他队伍快了5秒抢到空投，拿到AWM就溜了！", narrative_fail = "三支队伍在空投处混战，被集火淘汰。" },
+          { text = "🎯 远处架枪等渔翁之利", desc = "让其他队伍打起来，你在远处狙击", bonus = 15, narrative = "两支队伍果然打起来了，你远程收割残血，轻松拿分。" },
+          { text = "🚫 放弃空投继续发育", desc = "不冒险，按自己的节奏来", bonus = 5, narrative = "虽然错过了空投，但队伍完整且安全地进入了决赛圈。" },
+      },
+    },
+    { tags = "br", situation = "队友被击倒了！敌人在用倒地的队友做诱饵，等你去救。",
+      choices = {
+          { text = "💨 丢烟雾弹强救", desc = "烟雾掩护下冒险拉起队友", bonus = 15, risk = true, narrative_win = "烟雾弹完美覆盖，成功救起队友并撤到掩体后！", narrative_fail = "敌人直接穿烟扫射，你和队友双双倒地。" },
+          { text = "🔫 先击杀架枪的敌人", desc = "不救人先打人，拿掉威胁再说", bonus = 18, risk = true, narrative_win = "精准击杀架枪的敌人，随后从容救起队友！", narrative_fail = "交火暴露位置被第三方偷袭，局面更糟。" },
+          { text = "😢 战略放弃队友", desc = "保存实力不冒险，让队友掩护撤退", bonus = 3, narrative = "虽然痛苦但保住了团队核心战力，队友下一局再报仇。" },
       },
     },
 }
@@ -370,7 +480,7 @@ friendlyOpponent_ = nil  -- 友谊赛对手
 friendlyMatchToday_ = false -- 今天是否已打过友谊赛（每日冷却）
 matchTierSelect_ = false    -- 是否正在选择比赛等级
 
--- ── 踢馆 (Cafe Challenge) ──
+-- ── 踢馆 (Cafe Challenge) — Ban/Pick + 训练对比模式 ──
 challengeActive_ = false          -- 是否在踢馆中
 challengeDay_ = 0                 -- 上次踢馆的天数（每日限制）
 challengeOpponent_ = nil          -- NPC 数据 {name, score, emoji, ...}
@@ -379,19 +489,34 @@ challengeWagerAmount_ = 0         -- 赌注数量
 challengeRound_ = 0               -- 当前回合 (1-3)
 challengePlayerWins_ = 0          -- 玩家胜场
 challengeNPCWins_ = 0             -- NPC 胜场
-challengeModes_ = {}              -- 3 局的小游戏模式列表
-challengePhase_ = "select_wager"  -- "select_wager"|"round_intro"|"playing"|"round_result"|"final"
+challengeModes_ = {}              -- Bo3 实际比拼的3个训练模式
+challengePhase_ = "select_wager"  -- "select_wager"|"ban_pick"|"round_intro"|"playing"|"round_result"|"final"
 challengeDifficulty_ = 0.5        -- NPC 难度 (0.3~1.0)
 challengeNPCScore_ = 0            -- 本回合 NPC 得分（用于结果展示）
 challengeMultiplier_ = 1.5        -- 赌注倍率
 challengeRoundResult_ = nil       -- 本轮对战结果 {mode, playerScore, npcScore, playerWin}
 challengeBlockedPopup_ = nil      -- 踢馆条件不满足时的提示文本
-miniGame_ = nil                   -- 当前小游戏状态 {type, board, score, finished, ...}
-miniGameExitPopup_ = false        -- 小游戏退出确认弹窗是否显示
+
+-- Ban/Pick 相关
+challengeAllModes_ = { "aim", "quiz", "memory", "react", "comm" }  -- 全部5个可选模式
+challengePlayerBan_ = nil         -- 玩家 Ban 掉的模式
+challengeNPCBan_ = nil            -- NPC Ban 掉的模式
+challengeBanPhase_ = "player"     -- "player"|"npc"|"done" Ban阶段
+
+-- 踢馆用模式标签/图标（与训练系统一致）
+CHALLENGE_MODE_LABELS = { aim = "枪线校准", quiz = "赛后复盘", memory = "路线规划", react = "节奏反应", comm = "指挥通讯" }
+CHALLENGE_MODE_EMOJIS = { aim = "🎯", quiz = "📋", memory = "🗺️", react = "⏱️", comm = "📡" }
+
+-- 踢馆 NPC 基准分数（训练模式）
+CHALLENGE_NPC_THRESHOLDS = { aim = 12, quiz = 3, memory = 3, react = 5, comm = 3 }
 
 -- ── 每日委托任务系统（第10天后解锁） ──
 ---@type table|nil
 dailyQuest_ = nil  -- 当前每日委托 { id, desc, goal, progress, reward, rewardDesc, checkFn, icon }
+---@type table
+-- P1 委托板：Day15+ 激活，3个槽位并行委托
+-- [1] = 主委托（与 dailyQuest_ 同步），[2][3] = 快速委托（低门槛高频率）
+dailyQuestBoard_ = {}
 
 --- 委托任务模板池
 QUEST_TEMPLATES = {
@@ -444,9 +569,62 @@ QUEST_TEMPLATES = {
       field = "questUsedAllAP" },
 }
 
+-- P1 快速委托模板池（低门槛、5分钟可完成，用于委托板[2][3]槽位）
+QUICK_QUEST_TEMPLATES = {
+    { id = "q_upgrade",   desc = "升级任意设施1次",       icon = "🔧",
+      goal = 1, reward = { money = 40, rep = 8 },  rewardDesc = "$40 + 声望8",
+      field = "questUpgradeCount" },
+    { id = "q_train",     desc = "训练队员1次",            icon = "🎯",
+      goal = 1, reward = { money = 30, rep = 10 }, rewardDesc = "$30 + 声望10",
+      field = "questTrainCount",
+      filter = function() return #teamMembers_ >= 1 end },
+    { id = "q_market",    desc = "逛集市一次",             icon = "🏪",
+      goal = 1, reward = { money = 50, rep = 5 },  rewardDesc = "$50 + 声望5",
+      field = "questMarketVisit" },
+    { id = "q_match",     desc = "完成1场比赛（无论胜负）",icon = "🎮",
+      goal = 1, reward = { money = 60, rep = 8 },  rewardDesc = "$60 + 声望8",
+      field = "questMatchPlayed",
+      filter = function() return #teamMembers_ >= 2 end },
+    { id = "q_ad",        desc = "观看1次赞助商短片",      icon = "📺",
+      goal = 1, reward = { money = 35, rep = 5 },  rewardDesc = "$35 + 声望5",
+      field = "questAdWatchCount" },
+    { id = "q_income50",  desc = "今日收入达到$50",        icon = "💵",
+      goal = 50, reward = { money = 30, rep = 5 },  rewardDesc = "$30 + 声望5",
+      field = "questDailyIncome" },
+    { id = "q_mood60",    desc = "队员平均心情≥60",        icon = "😄",
+      goal = 60, reward = { money = 25, rep = 12 }, rewardDesc = "$25 + 声望12",
+      field = "questAvgMood",
+      filter = function() return #teamMembers_ >= 1 end },
+    { id = "q_equip80",   desc = "设备状态保持在80%以上",  icon = "🖥️",
+      goal = 80, reward = { money = 30, rep = 8 },  rewardDesc = "$30 + 声望8",
+      field = "questEquipCondition" },
+}
+
+--- 从模板池随机挑选 n 个不重复的委托（已排除指定 ID）
+local function PickQuests(pool, n, excludeIds)
+    local avail = {}
+    local excl = {}
+    for _, id in ipairs(excludeIds or {}) do excl[id] = true end
+    for _, tpl in ipairs(pool) do
+        if not excl[tpl.id] then
+            if not tpl.filter or tpl.filter() then
+                table.insert(avail, tpl)
+            end
+        end
+    end
+    -- 洗牌取前 n 个
+    for i = #avail, 2, -1 do
+        local j = math.random(1, i)
+        avail[i], avail[j] = avail[j], avail[i]
+    end
+    local result = {}
+    for i = 1, math.min(n, #avail) do table.insert(result, avail[i]) end
+    return result
+end
+
 --- 生成每日委托（从模板池随机选1个）
 function GenerateDailyQuest()
-    if playerData_.day < 5 then dailyQuest_ = nil; return end
+    if playerData_.day < 5 then dailyQuest_ = nil; dailyQuestBoard_ = {}; return end
     local day = playerData_.day
     -- 随机选一个委托（支持 minDay 过滤）
     local pool = {}
@@ -489,33 +667,60 @@ function GenerateDailyQuest()
     playerData_.questGoldTradeCount = 0
     playerData_.questEquipCondition = 0
     playerData_.questUsedAllAP = 0
+    playerData_.questMatchPlayed  = 0   -- 快速委托追踪：总场次（胜负均算）
+
+    -- P1 委托板：Day15+ 生成2个快速委托槽位
+    dailyQuestBoard_ = {}
+    if day >= 15 then
+        -- 槽1：主委托（与 dailyQuest_ 同步引用）
+        dailyQuestBoard_[1] = dailyQuest_
+        -- 槽2-3：从快速委托池随机挑2个（不与主委托重叠）
+        local mainId = dailyQuest_ and dailyQuest_.id or ""
+        local quickPicks = PickQuests(QUICK_QUEST_TEMPLATES, 2, { mainId })
+        for i, qt in ipairs(quickPicks) do
+            dailyQuestBoard_[i + 1] = {
+                id = qt.id, desc = qt.desc, icon = qt.icon,
+                goal = qt.goal, progress = 0,
+                reward = qt.reward,
+                rewardDesc = qt.rewardDesc,
+                field = qt.field, claimed = false,
+                isQuick = true,   -- 标记为快速委托
+            }
+        end
+    end
+end
+
+--- 更新单个委托的进度（心情/收入/设备等特殊字段）
+local function UpdateQuestProgress(q)
+    if not q or q.claimed then return end
+    q.progress = playerData_[q.field] or 0
+    local mood_ids = { high_mood=true, team_mood_90=true, q_mood60=true }
+    if mood_ids[q.id] and #teamMembers_ > 0 then
+        local total = 0
+        for _, m in ipairs(teamMembers_) do total = total + (m.mood or 50) end
+        q.progress = math.floor(total / #teamMembers_)
+    end
+    if q.id == "earn_income" or q.id == "earn_big" or q.id == "q_income50" then
+        q.progress = playerData_.questDailyIncome or 0
+    end
+    if q.id == "full_repair" or q.id == "q_equip80" then
+        q.progress = playerData_.equipCondition or 0
+    end
+    if q.id == "use_all_ap" then
+        q.progress = (playerData_.actionPoints or 0) <= 0 and 1 or 0
+    end
 end
 
 --- 检查委托是否完成
 function CheckQuestProgress()
-    if not dailyQuest_ or dailyQuest_.claimed then return end
-    dailyQuest_.progress = playerData_[dailyQuest_.field] or 0
-    -- 心情委托特殊处理：实时计算
-    if (dailyQuest_.id == "high_mood" or dailyQuest_.id == "team_mood_90") and #teamMembers_ > 0 then
-        local total = 0
-        for _, m in ipairs(teamMembers_) do total = total + (m.mood or 50) end
-        dailyQuest_.progress = math.floor(total / #teamMembers_)
-    end
-    -- 收入委托特殊处理
-    if dailyQuest_.id == "earn_income" or dailyQuest_.id == "earn_big" then
-        dailyQuest_.progress = playerData_.questDailyIncome or 0
-    end
-    -- 设备状态委托：实时读取
-    if dailyQuest_.id == "full_repair" then
-        dailyQuest_.progress = playerData_.equipCondition or 0
-    end
-    -- 用完行动点委托：结束日时自动判定
-    if dailyQuest_.id == "use_all_ap" then
-        dailyQuest_.progress = (playerData_.actionPoints or 0) <= 0 and 1 or 0
+    UpdateQuestProgress(dailyQuest_)
+    -- 同步更新委托板快速委托进度
+    for i = 2, #(dailyQuestBoard_ or {}) do
+        UpdateQuestProgress(dailyQuestBoard_[i])
     end
 end
 
---- 领取委托奖励
+--- 领取主委托奖励
 function ClaimQuestReward()
     if not dailyQuest_ or dailyQuest_.claimed then return end
     if dailyQuest_.progress < dailyQuest_.goal then return end
@@ -531,6 +736,19 @@ function ClaimQuestReward()
     end
     PlaySFX("coin_collect")
     AddLog("✅ 委托完成「" .. dailyQuest_.desc .. "」！奖励：" .. dailyQuest_.rewardDesc .. streakMsg)
+end
+
+--- P1 领取委托板快速委托奖励（slot=2或3）
+function ClaimBoardQuestReward(slot)
+    local q = dailyQuestBoard_ and dailyQuestBoard_[slot]
+    if not q or q.claimed then return end
+    if q.progress < q.goal then return end
+    q.claimed = true
+    local r = q.reward
+    if r.money then playerData_.money = playerData_.money + r.money end
+    if r.rep   then playerData_.reputation = playerData_.reputation + r.rep end
+    PlaySFX("coin_collect")
+    AddLog("✅ 快速委托「" .. q.desc .. "」完成！奖励：" .. q.rewardDesc)
 end
 
 -- ── 分店随机事件池 ──
@@ -578,8 +796,8 @@ MATCH_TIERS = {
       unlock = function() return playerData_.reputation >= 200 and (playerData_.tierWins or {})[1] and playerData_.tierWins[1] >= 3 end,
       unlockDesc = "声望≥200 + T1赢3场" },
     { name = "🌍 全非邀请赛", cost = 300, basePower = 350, powerFrac = 0.35, powerRange = { 0.75, 1.05 }, rewardMult = 3.0,
-      unlock = function() return playerData_.reputation >= 500 and (playerData_.tierWins or {})[2] and playerData_.tierWins[2] >= 3 end,
-      unlockDesc = "声望≥500 + T2赢3场" },
+      unlock = function() return playerData_.reputation >= 350 and (playerData_.tierWins or {})[2] and playerData_.tierWins[2] >= 3 end,
+      unlockDesc = "声望≥350 + T2赢3场" },
 }
 scoutedRound_ = 0           -- 已侦查的回合号（0=未侦查）
 matchOpponents_ = {
@@ -601,7 +819,7 @@ TOURNAMENT_TIERS = {
         winText = "🏆 地区冠军！Dragon Force 称霸三角洲！",
         loseText = "💪 地区赛失利，但积累了宝贵经验。",
         opponents = {
-            { name = "瓦里镇·铁壳网吧队", power = 130,  style = "防守型", emoji = "🛡️" },
+            { name = "瓦里镇·铁壳网吧队", power = 130,  style = "防守反击", emoji = "🛡️" },
             { name = "阿萨巴·街机少年队", power = 180, style = "快攻型", emoji = "🕹️" },
             { name = "贝宁城·学院精英队", power = 240, style = "均衡型", emoji = "🎓" },
         },
@@ -755,17 +973,138 @@ cafeEventsDay_ = 0     -- 已生成事件的天数（防止重复生成）
 pendingCafeCount_ = 0  -- 待处理事件计数（用于按钮角标）
 cafeViewOpen_ = false  -- 网吧实况面板是否展开
 cafeActionUsedDay_ = 0 -- 已消耗行动点的天数（每天最多消耗1次）
-restoreManageScroll_ = nil -- 网吧事件选择后恢复滚动位置 {x, y}
+restoreManageScroll_ = nil -- 管理界面滚动位置恢复 {x, y, frames}
+restoreCafePopupScroll_ = nil -- 网吧弹窗内滚动位置恢复 {x, y, frames}
 
 -- ── 升级计时器 ──
 activeUpgrade_ = nil       -- 正在升级中的项目 key (string|nil)
-upgradeTimeLeft_ = 0       -- 升级剩余时间（秒）
+upgradeTimeLeft_ = 0       -- 升级剩余时间（秒），-1表示跨日建造模式
 upgradeTotalTime_ = 0      -- 升级总时间（秒）
 upgradeCost_ = nil          -- 正在升级的费用（用于完成日志）
+upgradeCompletionDay_ = nil -- 跨日建造：目标完工天数（nil=当天完成）
 upgradeSynergiesBefore_ = nil -- 升级前联动快照
 
+-- ── 弹窗优先级队列（每日上限控制） ──
+POPUP_DAILY_MAX = 3             -- 非核心弹窗每日上限
+popupsShownToday_ = 0           -- 今日已展示非核心弹窗计数
+popupsCountDay_ = 0             -- 计数器对应的天数（跨天自动重置）
+
+--- 检查是否还能展示非核心弹窗；若到达上限返回 false
+--- 核心弹窗（日结/离线/转生）不走此检查
+---@return boolean
+function CanShowPopup()
+    local day = playerData_ and playerData_.day or 0
+    if popupsCountDay_ ~= day then
+        popupsCountDay_ = day
+        popupsShownToday_ = 0
+    end
+    return popupsShownToday_ < POPUP_DAILY_MAX
+end
+
+--- 消耗一次弹窗展示配额
+function ConsumePopupSlot()
+    local day = playerData_ and playerData_.day or 0
+    if popupsCountDay_ ~= day then
+        popupsCountDay_ = day
+        popupsShownToday_ = 0
+    end
+    popupsShownToday_ = popupsShownToday_ + 1
+end
+
 -- ============================================================================
--- 8. 入口
+-- 8. 阿布杜大叔黄金市场播报系统
+-- ============================================================================
+
+--- 阿布杜大叔语录池（按金价趋势分类）
+--- signal: "up"=涨信号, "down"=跌信号, "neutral"=模糊/观望
+UNCLE_ABDU_QUOTES = {
+    -- 涨信号
+    { signal = "up", text = "孩子，今天是个好日子！英国人心情好，他们买石油，我们就有钱买金！你也该买！" },
+    { signal = "up", text = "我做这行二十年，今天这走势我见过——会涨。信不信由你。" },
+    { signal = "up", text = "昨晚电视说奈拉又要贬值了。金子不会骗你，现金会！" },
+    { signal = "up", text = "刚才有个大客户一口气买了50盎司。大钱跟进的时候，你要跟着走。" },
+    { signal = "up", text = "石油管道炸了！物资紧缺，金价看涨。快点决定，慢了别怨我。" },
+    { signal = "up", text = "瓦坎达维尔今天过节，黄金首饰店排长队。需求上来了，价格能不涨吗？" },
+    { signal = "up", text = "昨天没买的人今天后悔了吧？不过今天买还不算太晚。" },
+    -- 跌信号
+    { signal = "down", text = "孩子们，今天别碰金！石油部长又换人了，市场慌得很。" },
+    { signal = "down", text = "港口那边传来消息，大量黄金从刚果进来了。供应多了，价格嘛……" },
+    { signal = "down", text = "最近买金的人都在亏钱。你要是有仓位，考虑考虑吧。" },
+    { signal = "down", text = "隔壁的交易商昨晚跑路了。这行情……我也害怕。" },
+    { signal = "down", text = "总统演讲说经济很好，不需要买黄金避险。你懂这意味着什么。" },
+    { signal = "down", text = "下雨天没人来买金。没人买，价格就上不去。" },
+    { signal = "down", text = "你看看街上那些金店，都在打折甩卖。这不是好信号。" },
+    -- 模糊/观望
+    { signal = "neutral", text = "今天我不说。我今天累了。你自己看着办。" },
+    { signal = "neutral", text = "有人说涨，有人说跌。我活了六十年，唯一确定的是——没人能确定。" },
+    { signal = "neutral", text = "你来得正好。不过今天……嗯，我也在想。要不明天再聊？" },
+    { signal = "neutral", text = "刚才有两拨人来问我，一拨要买，一拨要卖。你说我该信谁？" },
+    { signal = "neutral", text = "我侄子说涨，我老婆说跌。家里为这个吵了一晚上。" },
+    { signal = "neutral", text = "这行情就像拉各斯的天气——你永远不知道下一秒会怎样。" },
+    -- 特殊（主线联动触发）
+    { signal = "win_bonus", text = "哎呀！你们队赢了比赛！恭喜恭喜！来，今天大叔给你个内部消息——明天金价肯定涨！" },
+    { signal = "lose_comfort", text = "输了比赛？没事没事。金子不在乎谁赢谁输，它只在乎有没有人要买。" },
+    { signal = "low_cash", text = "孩子，你口袋里快没钱了吧？要不……把金子卖点？大叔不骗你，先活下去再说。" },
+}
+
+--- 获取今日阿布杜大叔播报
+--- @return string 大叔语录文本
+--- @return string 信号类型("up"/"down"/"neutral")
+function GetUncleAbduQuote()
+    local day = playerData_.day or 1
+    local curPrice = GetGoldPrice(day)
+    local nextPrice = GetGoldPrice(day + 1)
+
+    -- 主线联动特殊触发
+    if (playerData_.money or 0) < 300 and (playerData_.goldOunces or 0) >= 0.5 then
+        local q = UNCLE_ABDU_QUOTES[#UNCLE_ABDU_QUOTES]  -- low_cash
+        return q.text, "down"
+    end
+    if playerData_.lastMatchResult == "win" and (playerData_.lastMatchDay or 0) == day then
+        for _, q in ipairs(UNCLE_ABDU_QUOTES) do
+            if q.signal == "win_bonus" then return q.text, "up" end
+        end
+    end
+    if playerData_.lastMatchResult == "lose" and (playerData_.lastMatchDay or 0) == day then
+        for _, q in ipairs(UNCLE_ABDU_QUOTES) do
+            if q.signal == "lose_comfort" then return q.text, "neutral" end
+        end
+    end
+
+    -- 根据明日金价走势选信号方向（75%准确率，25%故意误导增加趣味性）
+    local trueSignal
+    if nextPrice > curPrice * 1.05 then
+        trueSignal = "up"
+    elseif nextPrice < curPrice * 0.95 then
+        trueSignal = "down"
+    else
+        trueSignal = "neutral"
+    end
+
+    -- 25%概率给出误导信号（大叔也会看走眼）
+    local seed = (day * 31 + 7) % 100
+    local signal = trueSignal
+    if seed < 25 then
+        local others = {}
+        for _, s in ipairs({"up", "down", "neutral"}) do
+            if s ~= trueSignal then others[#others + 1] = s end
+        end
+        signal = others[((day * 13) % #others) + 1]
+    end
+
+    -- 从对应信号池中确定性选取（相同天数=相同语录）
+    local pool = {}
+    for _, q in ipairs(UNCLE_ABDU_QUOTES) do
+        if q.signal == signal then pool[#pool + 1] = q end
+    end
+    if #pool == 0 then return "……", "neutral" end
+    local idx = (day * 17 + 3) % #pool + 1
+    ---@diagnostic disable-next-line: return-type-mismatch
+    return pool[idx].text, signal
+end
+
+-- ============================================================================
+-- 9. 入口
 -- ============================================================================
 -- Start() / Stop() 已移至 main.lua 入口文件
 

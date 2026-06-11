@@ -31,11 +31,11 @@ local TYPEWRITER_SFX_INTERVAL = 3    -- 每3个字符播放一次音效
 local TYPEWRITER_SFX_GAIN = 0.15     -- 音效音量（低调的咔哒声）
 
 -- ============================================================================
--- 独白视觉特效配置
+-- 独白视觉特效配置（电影宽银幕风格）
 -- ============================================================================
-local VIGNETTE_ALPHA = 60            -- 暗角透明度
-local SCAN_LINE_ALPHA = 8            -- 扫描线透明度
-local DUST_MOTE_COUNT = 12           -- 灰尘微粒数量
+local VIGNETTE_ALPHA = 50            -- 暗角透明度（柔和）
+local LETTERBOX_HEIGHT = 0.08        -- 上下黑条高度占比（宽银幕效果）
+local LETTERBOX_ALPHA = 200          -- 黑条透明度
 
 -- ============================================================================
 -- 状态
@@ -54,11 +54,15 @@ local typewriter_ = {
     charsSinceLastSfx = 0,
 }
 
--- 独白特效粒子
-local dustMotes_ = {}
-
 -- 音频节点引用
 local audioNode_ = nil
+
+-- 渐显动画状态
+local fadeIn_ = {
+    active = false,
+    elapsed = 0,
+    duration = 0.6,  -- 渐显时长（秒）
+}
 
 -- ============================================================================
 -- UTF-8 工具（复用 main.lua 的全局函数）
@@ -111,21 +115,6 @@ end
 -- ============================================================================
 function M.Init(node)
     audioNode_ = node
-    M._InitDustMotes()
-end
-
-function M._InitDustMotes()
-    dustMotes_ = {}
-    for i = 1, DUST_MOTE_COUNT do
-        table.insert(dustMotes_, {
-            x = math.random() * 100,
-            y = math.random() * 100,
-            size = 0.8 + math.random() * 1.5,
-            alpha = 15 + math.random(0, 25),
-            speedY = -0.3 - math.random() * 0.8,
-            phase = math.random() * math.pi * 2,
-        })
-    end
 end
 
 -- ============================================================================
@@ -145,6 +134,9 @@ function M.StartTypewriter(text, isMonologue)
     typewriter_.pauseTimer = 0
     typewriter_.isPaused = false
     typewriter_.charsSinceLastSfx = 0
+    -- 独白模式启动渐显
+    fadeIn_.active = isMonologue or false
+    fadeIn_.elapsed = 0
 end
 
 --- 跳过打字机动画
@@ -175,6 +167,22 @@ end
 --- 获取完整文本
 function M.GetFullText()
     return typewriter_.fullText
+end
+
+--- 获取渐显进度 (0~1)，用于 UI 透明度动画
+function M.GetFadeAlpha()
+    if not fadeIn_.active then return 1.0 end
+    return math.min(1.0, fadeIn_.elapsed / fadeIn_.duration)
+end
+
+--- 更新渐显动画
+function M.UpdateFadeIn(dt)
+    if fadeIn_.active then
+        fadeIn_.elapsed = fadeIn_.elapsed + dt
+        if fadeIn_.elapsed >= fadeIn_.duration then
+            fadeIn_.active = false
+        end
+    end
 end
 
 -- ============================================================================
@@ -214,6 +222,7 @@ function M.UpdateTypewriter(dt)
             local pauseDur = PAUSE_CHARS[ch]
             if pauseDur and ci < charCount then  -- 最后一个字符不暂停
                 typewriter_.isPaused = true
+                ---@diagnostic disable-next-line: assign-type-mismatch
                 typewriter_.pauseTimer = pauseDur
                 typewriter_.displayLen = ci  -- 停在这个标点处
                 break
@@ -240,7 +249,7 @@ function M._PlayTypeSfx()
 end
 
 -- ============================================================================
--- 独白NanoVG视觉特效
+-- 独白NanoVG视觉特效（电影宽银幕风格）
 -- ============================================================================
 
 --- 绘制独白视觉特效（在对话阶段的NanoVG渲染中调用）
@@ -251,56 +260,30 @@ end
 function M.DrawMonologueEffects(vg, w, h, dt)
     if not typewriter_.isMonologue then return end
 
-    -- ========== 1. 边缘暗角 (vignette) ==========
-    -- 四角暗角
-    local corners = {
-        { 0, 0 }, { w, 0 }, { 0, h }, { w, h },
-    }
-    for _, c in ipairs(corners) do
-        local radius = math.max(w, h) * 0.5
-        local grad = nvgRadialGradient(vg, c[1], c[2], radius * 0.2, radius,
-            nvgRGBA(0, 0, 0, 0), nvgRGBA(0, 0, 0, VIGNETTE_ALPHA))
-        nvgBeginPath(vg)
-        nvgRect(vg, c[1] - radius, c[2] - radius, radius * 2, radius * 2)
-        nvgFillPaint(vg, grad)
-        nvgFill(vg)
-    end
-
-    -- ========== 2. 横向扫描线 ==========
-    local scanLineGap = 3
-    for y = 0, h, scanLineGap do
-        nvgBeginPath(vg)
-        nvgRect(vg, 0, y, w, 1)
-        nvgFillColor(vg, nvgRGBA(0, 0, 0, SCAN_LINE_ALPHA))
-        nvgFill(vg)
-    end
-
-    -- ========== 3. 灰尘微粒 ==========
-    for _, p in ipairs(dustMotes_) do
-        p.y = p.y + p.speedY * dt
-        p.phase = p.phase + dt * 1.2
-        if p.y < -5 then p.y = 105 end
-        local flicker = 0.5 + 0.5 * math.sin(p.phase)
-        local pa = math.floor(p.alpha * flicker)
-        nvgBeginPath(vg)
-        nvgCircle(vg, p.x * w * 0.01, p.y * h * 0.01, p.size)
-        nvgFillColor(vg, nvgRGBA(220, 190, 140, pa))
-        nvgFill(vg)
-    end
-
-    -- ========== 4. 顶部紫色渐变条（独白氛围）==========
-    local topGrad = nvgLinearGradient(vg, 0, 0, 0, h * 0.15,
-        nvgRGBA(60, 45, 25, 50), nvgRGBA(0, 0, 0, 0))
+    -- ========== 1. 柔和暗角 (vignette) ==========
+    local cx, cy = w * 0.5, h * 0.5
+    local radius = math.max(w, h) * 0.7
+    local grad = nvgRadialGradient(vg, cx, cy, radius * 0.3, radius,
+        nvgRGBA(0, 0, 0, 0), nvgRGBA(0, 0, 0, VIGNETTE_ALPHA))
     nvgBeginPath(vg)
-    nvgRect(vg, 0, 0, w, h * 0.15)
-    nvgFillPaint(vg, topGrad)
+    nvgRect(vg, 0, 0, w, h)
+    nvgFillPaint(vg, grad)
     nvgFill(vg)
 
-    -- ========== 5. 底部紫色渐变条 ==========
-    local botGrad = nvgLinearGradient(vg, 0, h * 0.85, 0, h,
-        nvgRGBA(0, 0, 0, 0), nvgRGBA(60, 45, 25, 40))
+    -- ========== 2. 上下 Letterbox 黑条（宽银幕电影感）==========
+    local barH = h * LETTERBOX_HEIGHT
+    -- 顶部黑条（带渐变过渡）
+    local topGrad = nvgLinearGradient(vg, 0, 0, 0, barH,
+        nvgRGBA(0, 0, 0, LETTERBOX_ALPHA), nvgRGBA(0, 0, 0, 0))
     nvgBeginPath(vg)
-    nvgRect(vg, 0, h * 0.85, w, h * 0.15)
+    nvgRect(vg, 0, 0, w, barH)
+    nvgFillPaint(vg, topGrad)
+    nvgFill(vg)
+    -- 底部黑条（带渐变过渡）
+    local botGrad = nvgLinearGradient(vg, 0, h - barH, 0, h,
+        nvgRGBA(0, 0, 0, 0), nvgRGBA(0, 0, 0, LETTERBOX_ALPHA))
+    nvgBeginPath(vg)
+    nvgRect(vg, 0, h - barH, w, barH)
     nvgFillPaint(vg, botGrad)
     nvgFill(vg)
 end

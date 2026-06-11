@@ -521,6 +521,95 @@ EVENT_DEFS.borrow_money = {
     end,
 }
 
+-- ────────────────────────────────────────────────────
+-- market_xiaoxue — 小雪集市事件（两个小人并肩从右侧走入）
+-- ────────────────────────────────────────────────────
+EVENT_DEFS.market_xiaoxue = {
+    duration = 4.0,
+    draw = function(vg, t, alpha, x, y, w, h, L)
+        local progress = math.min(1, t / 3.0)
+        local baseX = x + w - (w * 0.75) * progress
+        local baseY = L.bodyY + L.bodyH - 14
+        -- 主角
+        person(vg, baseX, baseY, 12, {170, 120, 70}, {90, 150, 200}, alpha)
+        -- 小雪（白衣，紧跟半步）
+        person(vg, baseX + 10, baseY, 11, {240, 210, 180}, {255, 255, 255}, alpha)
+        -- 小雪头上的爱心（上下浮动）
+        local heartY = baseY - 14 + math.sin(t * 3) * 2
+        local heartA = math.floor(alpha * (0.6 + 0.4 * math.sin(t * 4)))
+        nvgFontFace(vg, "trans")
+        nvgFontSize(vg, 8)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(vg, nvgRGBA(255, 130, 160, heartA))
+        nvgText(vg, baseX + 10, heartY, "♥")
+    end,
+}
+
+-- ────────────────────────────────────────────────────
+-- market_grace — Grace集市事件（干练女性在门口等待）
+-- ────────────────────────────────────────────────────
+EVENT_DEFS.market_grace = {
+    duration = 4.0,
+    draw = function(vg, t, alpha, x, y, w, h, L)
+        local doorX = L.buildingX + 6
+        local doorY = L.bodyY + L.bodyH - 14
+        -- Grace（红裙，在门口）
+        person(vg, doorX, doorY, 12, {100, 65, 35}, {200, 60, 60}, alpha)
+        -- 挥手动作（手臂摆动）
+        local wave = math.sin(t * 5) * 3
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, doorX + 3, doorY + 3)
+        nvgLineTo(vg, doorX + 6 + wave, doorY - 1)
+        nvgStrokeWidth(vg, 1.5)
+        nvgStrokeColor(vg, nvgRGBA(100, 65, 35, alpha))
+        nvgStroke(vg)
+        -- 主角从右走来
+        local progress = math.min(1, t / 2.5)
+        local px = x + w - (w * 0.6) * progress
+        person(vg, px, doorY, 12, {170, 120, 70}, {90, 150, 200}, alpha)
+        -- 商务提包
+        rect(vg, doorX - 6, doorY + 4, 5, 4, {80, 60, 40}, alpha)
+    end,
+}
+
+-- ────────────────────────────────────────────────────
+-- market_wedding — 误闯婚礼（五彩纸屑 + 跳舞小人）
+-- ────────────────────────────────────────────────────
+EVENT_DEFS.market_wedding = {
+    duration = 4.5,
+    draw = function(vg, t, alpha, x, y, w, h, L)
+        local cx = L.buildingX + L.buildingW * 0.5
+        local baseY = L.bodyY + L.bodyH - 14
+        -- 跳舞小人们
+        local dancers = {
+            {offset = -12, skin = {140,90,50}, shirt = {255,200,50}},
+            {offset = 0,   skin = {170,120,70}, shirt = {90,150,200}},
+            {offset = 12,  skin = {100,65,35}, shirt = {200,100,180}},
+        }
+        for i, d in ipairs(dancers) do
+            local bounce = math.abs(math.sin(t * 4 + i * 1.2)) * 3
+            person(vg, cx + d.offset, baseY - bounce, 11, d.skin, d.shirt, alpha)
+        end
+        -- 五彩纸屑飘落
+        local confettiColors = {{255,100,100},{255,220,50},{100,200,255},{100,255,130},{255,150,230}}
+        for i = 1, 10 do
+            local ct = (t * 0.8 + i * 0.3) % 3.0
+            local cfx = cx - 20 + (i * 7) % 40 + math.sin(ct * 2 + i) * 5
+            local cfy = y + 5 + ct * 20
+            local ca = math.max(0, (1 - ct / 3.0)) * alpha * 0.7
+            local col = confettiColors[((i - 1) % #confettiColors) + 1]
+            rect(vg, cfx, cfy, 2.5, 2.5, col, math.floor(ca))
+        end
+        -- 音符飘出
+        local noteA = math.floor(alpha * (0.5 + 0.5 * math.sin(t * 3)))
+        nvgFontFace(vg, "trans")
+        nvgFontSize(vg, 9)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(vg, nvgRGBA(255, 240, 100, noteA))
+        nvgText(vg, cx + 18, baseY - 8 + math.sin(t * 2) * 3, "♪")
+    end,
+}
+
 -- ============================================================================
 -- 公共接口
 -- ============================================================================

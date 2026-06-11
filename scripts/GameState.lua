@@ -1,4 +1,5 @@
 ---@diagnostic disable: undefined-global
+---@diagnostic disable: assign-type-mismatch
 -- ============================================================================
 -- 1. 全局状态 & 常量
 -- ============================================================================
@@ -17,7 +18,9 @@ PHASE_EVENT    = "event"
 PHASE_MATCH    = "match"
 PHASE_RESULT   = "result"
 PHASE_GAMEOVER = "gameover"
+PHASE_VICTORY  = "victory"
 PHASE_COMIC   = "comic"
+PHASE_CHAPTER_COMIC = "chapter_comic"  -- 章节漫画面板阶段
 
 currentPhase_ = PHASE_TITLE
 manageTab_ = "action"  -- 管理界面当前Tab: "action" / "upgrade" / "team"
@@ -25,49 +28,61 @@ branchOpenStep_ = 0   -- 分店开设流程: 0=关闭 1=选地点 2=选游戏
 branchOpenLocOpts_ = nil  -- 待选地点列表（2-3个随机）
 branchOpenSelLoc_ = nil   -- 已选地点
 currentChapter_ = 1
+diaryExpanded_ = false  -- 日记折叠状态
 
--- 配色（暗色主题 · 焦橙点缀 v5 — 严格设计规格）
+-- 配色（像素复古风 v6 — Kairosoft 风格 · 粗边框 · 高对比）
 C = {
-    -- 基底
-    bg       = { 45, 36, 32, 255 },      -- #2D2420 页面底
-    card     = { 61, 53, 48, 255 },      -- #3D3530 卡片/按钮底
-    cardAlt  = { 72, 62, 56, 255 },      -- 卡片变体（略亮）
-    -- 主色
-    accent   = { 199, 91, 18, 255 },     -- #C75B12 焦橙（主色）
-    accentDim= { 160, 72, 14, 255 },     -- 深焦橙
-    accentLight = { 80, 55, 35, 255 },   -- 暗焦橙背景
-    -- 功能色
-    gold     = { 212, 160, 23, 255 },    -- #D4A017 金/货币
-    goldDim  = { 160, 120, 18, 255 },    -- 暗金
-    green    = { 90, 145, 85, 255 },     -- 低饱和绿（成功/正向）
-    red      = { 230, 70, 70, 255 },     -- 亮红
-    blue     = { 180, 155, 110, 255 },   -- 暖琥珀（禁蓝，替代信息色）
-    -- 广告专用（暖金高亮，吸引点击）
-    adBg     = { 50, 42, 32, 255 },      -- 深棕底（比card暗，衬托金字）
-    adText   = { 255, 215, 80, 255 },    -- 亮金文字（高对比度吸引眼球）
-    adBorder = { 212, 170, 50, 140 },    -- 金色边框
-    -- 文字
-    text     = { 255, 255, 255, 255 },   -- #FFFFFF 主文字
-    textDim  = { 232, 224, 212, 255 },   -- #E8E0D4 副文字
-    textLight= { 122, 107, 93, 255 },    -- #7A6B5D 辅助文字
-    -- 边框/装饰
-    border   = { 80, 68, 55, 255 },      -- 暗边框
-    target   = { 230, 70, 70, 255 },     -- 亮红目标
-    targetGlow = { 230, 100, 40, 210 },  -- 橙色辉光
-    cellIdle = { 55, 48, 38, 240 },      -- 暗调格
-    overlay  = { 10, 8, 5, 200 },        -- 深遮罩
-    -- UI 专用 Token
-    statusBar    = { 45, 36, 32, 250 },     -- StatusBar 底（同页面底）
-    statusText   = { 255, 255, 255, 255 },  -- StatusBar 白文字
-    tabBg        = { 45, 36, 32, 255 },     -- TabBar 底（同页面底）
-    tabBorder    = { 80, 68, 55, 200 },     -- TabBar 底线
-    bubble_self  = { 70, 58, 42, 240 },     -- 自己气泡
-    bubble_other = { 58, 50, 40, 245 },     -- 他人气泡
-    upgrade_bg   = { 61, 53, 48, 250 },     -- 升级卡片
-    upgrade_active = { 72, 62, 56, 255 },   -- 升级中
-    upgrade_max  = { 50, 70, 52, 250 },     -- 满级（低饱和绿底）
-    diary_today  = { 61, 53, 48, 255 },     -- 今日日记
-    diary_past   = { 52, 44, 38, 245 },     -- 过去日记
+    -- 基底（更深的像素棕，强调 CRT 感）
+    bg       = { 48, 36, 28, 255 },      -- 深棕页面底
+    card     = { 82, 58, 44, 255 },      -- 卡片底（稍暗，像素风木板）
+    cardAlt  = { 98, 74, 58, 255 },      -- 卡片变体
+    -- 主色（饱和焦橙，像素游戏标志色）
+    accent   = { 220, 100, 20, 255 },    -- 焦橙主色（更饱和）
+    accentDim= { 170, 78, 16, 255 },     -- 深焦橙
+    accentLight = { 72, 50, 32, 255 },   -- 暗焦橙背景
+    -- 功能色（像素游戏高饱和色）
+    gold     = { 240, 180, 30, 255 },    -- 像素金（更亮更饱和）
+    goldDim  = { 180, 130, 20, 255 },    -- 暗金
+    green    = { 80, 180, 70, 255 },     -- 像素绿（更鲜）
+    moneyGreen = { 60, 220, 60, 255 },   -- 金额亮绿（更饱和）
+    red      = { 240, 60, 60, 255 },     -- 像素红
+    blue     = { 190, 160, 110, 255 },   -- 暖琥珀
+    -- 广告专用
+    adBg     = { 44, 34, 26, 255 },
+    adText   = { 255, 220, 30, 255 },
+    adBorder = { 220, 180, 50, 160 },
+    -- 文字（像素暖白，高对比）
+    text     = { 255, 248, 235, 255 },   -- 主文字
+    textDim  = { 210, 200, 180, 255 },   -- 副文字
+    textLight= { 150, 130, 110, 255 },   -- 辅助文字
+    -- 边框（像素风粗实线 — 更深棕突出边界感）
+    border   = { 140, 100, 70, 255 },    -- 主边框（深棕）
+    borderHi = { 180, 140, 100, 255 },   -- 高亮边框
+    target   = { 240, 60, 60, 255 },
+    targetGlow = { 240, 110, 40, 220 },
+    cellIdle = { 65, 48, 38, 240 },
+    overlay  = { 10, 8, 5, 220 },
+    -- UI Token（像素风格加粗边框）
+    statusBar    = { 48, 36, 28, 250 },
+    statusText   = { 255, 248, 235, 255 },
+    tabBg        = { 48, 36, 28, 255 },
+    tabBorder    = { 140, 100, 70, 255 },
+    bubble_self  = { 82, 62, 48, 240 },
+    bubble_other = { 68, 52, 42, 245 },
+    upgrade_bg   = { 82, 58, 44, 250 },
+    upgrade_active = { 98, 74, 58, 255 },
+    upgrade_max  = { 45, 75, 48, 250 },
+    diary_today  = { 82, 58, 44, 255 },
+    diary_past   = { 62, 48, 38, 245 },
+}
+
+-- 像素风格全局常量（所有模块共用）
+PX = {
+    radius   = 3,    -- 圆角半径（像素游戏直角感）
+    radiusSm = 2,    -- 小圆角
+    border   = 2,    -- 主边框宽度（像素风加粗）
+    borderSm = 1,    -- 细边框
+    cardRadius = 4,  -- 卡片圆角（像素风保留极小圆角）
 }
 
 -- ============================================================================
@@ -106,15 +121,32 @@ SCENE_IMAGES = {
     comic_1 = "image/comic_panel_1_departure_20260512030921.png",
     comic_2 = "image/comic_panel_2_arrival_20260512030952.png",
     comic_3 = "image/comic_panel_3_opening_20260512032020.png",
-    -- 网吧经营状态场景图（像素风格建筑截面）
-    cafe_empty      = "image/cafe_empty_20260519093115.png",
-    cafe_few        = "image/cafe_few_20260519093129.png",
-    cafe_normal     = "image/cafe_normal_20260519093113.png",
-    cafe_busy       = "image/cafe_busy_20260519093142.png",
-    cafe_blackout   = "image/cafe_blackout_20260519093115.png",
-    cafe_tournament = "image/cafe_tournament_20260519093115.png",
-    cafe_bbq        = "image/cafe_bbq_20260519093112.png",
-    cafe_streaming  = "image/cafe_streaming_20260519093116.png",
+    -- 章节全景splash图（每章1张16:9宽屏）
+    ch1_panel1 = "image/ch1_splash_cafe_20260607151323.png",
+    ch2_splash = "image/ch2_splash_rainnight_20260607151817.png",
+    ch3_splash = "image/ch3_splash_blackout_20260607151826.png",
+    ch4_splash = "image/ch4_splash_roadtrip_20260607151816.png",
+    ch5_splash = "image/ch5_splash_arena_20260607151816.png",
+    -- 网吧经营状态场景图（v5 - 21:9 宽幅像素风，顶部留空无遮挡）
+    cafe_empty      = "image/cafe_few_wide_20260603073551.png",
+    cafe_few        = "image/cafe_few_wide_20260603073551.png",
+    cafe_normal     = "image/cafe_normal_wide_20260603073622.png",
+    cafe_busy       = "image/cafe_busy_wide_20260603073551.png",
+    cafe_blackout   = "image/cafe_blackout_wide_20260603073605.png",
+    cafe_tournament = "image/cafe_full_wide_20260603073710.png",
+    cafe_bbq        = "image/cafe_busy_wide_20260603073551.png",
+    cafe_streaming  = "image/cafe_full_wide_20260603073710.png",
+    -- 夜间/包夜变体
+    cafe_few_night    = "image/cafe_few_night_wide_20260603073711.png",
+    cafe_normal_night = "image/cafe_night_wide_20260603073710.png",
+    cafe_busy_night   = "image/cafe_full_night_wide_20260603073728.png",
+    cafe_overnight    = "image/cafe_full_night_wide_20260603073728.png",
+    -- 叙事系统场景图
+    memory_night    = "image/scene_memory_night_20260607081222.png",
+    memory_shenzhen = "image/scene_memory_shenzhen_20260607081227.png",
+    community       = "image/scene_community_meeting_20260607081217.png",
+    summit          = "image/scene_summit_20260607081218.png",
+    farewell        = "image/scene_farewell_prestige_20260607081215.png",
 }
 
 CHAPTER_IMAGES = {}
@@ -128,36 +160,53 @@ end
 COMIC_PANELS = {
     {
         image = SCENE_IMAGES.comic_1,
-        title = "卷不动了",
+        title = "深圳 · 凌晨两点",
         lines = {
-            "200份简历，30场面试",
-            "最后的offer薪资还不够付房租",
-            "5000美元，全部身家",
-            "买了一张飞往非洲的单程票",
+            "出租屋的灯还亮着。手机屏幕上是第31封拒信。",
+            "银行卡余额：$5,000——这是表叔\"借\"你的最后一笔。",
+            "窗外霓虹闪烁，但没有一盏是为你亮的。",
+        },
+        choices = {
+            { text = "💀 \"我已经没有退路了\"", tone = "desperate",
+              response = "你把租房合同撕成两半，打开了一张飞往非洲的机票网页。有些人南下淘金，你选择向南——再南。" },
+            { text = "🔥 \"那就去一个没人卷的地方\"", tone = "defiant",
+              response = "表叔发来的消息还亮着：\"非洲那边有机会。\" 你没回复。直接订了票。" },
         },
     },
     {
         image = SCENE_IMAGES.comic_2,
-        title = "瓦坎达维尔",
+        title = "18小时后 · 瓦坎达维尔",
         lines = {
-            "没有红绿灯，没有外卖",
-            "街边的山羊比汽车多",
-            "房东Musa指着铁皮屋说：",
-            "\"最好的店面，月租200刀\"",
+            "热浪扑面而来。行李箱的轮子在红土路上发出尖锐的声响。",
+            "没有接机的人。没有计划B。",
+            "一个中年黑人笑着走过来：\"你就是Musa说的那个中国人？\"",
         },
     },
     {
         image = SCENE_IMAGES.comic_3,
         title = "Dragon Net Cafe",
         lines = {
-            "三台二手电脑，一个路由器",
-            "墙上喷漆画了一条龙",
-            "油漆没干，第一个客人就来了",
-            "组建战队，征战非洲电竞！",
+            "铁皮屋。三台二手电脑。一条随时会断的宽带。",
+            "你用红色喷漆在墙上画了一条龙——手还在抖。",
+            "第一个客人是个赤脚少年，兜里攥着皱巴巴的纸钞。",
+        },
+        choices = {
+            { text = "🎮 \"有一天，这里会走出非洲最强战队\"", tone = "esports",
+              response = "你在龙的旁边写下了一行字：DRAGON FORCE。少年问那是什么意思。你说：\"以后你就知道了。\"" },
+            { text = "🌙 \"先活过今晚再说\"", tone = "survival",
+              response = "第一天的营业额：$12。你关了灯，坐在塑料凳上看着天花板裂缝里漏进来的月光。至少，这里不用交房租。" },
         },
     },
 }
 comicPanelIdx_ = 1  -- 当前漫画面板索引
+comicChoiceResponse_ = nil  -- 交互选择后的响应文本（nil=未选择/无选择）
+
+-- 章节漫画面板状态
+chapterComicPanels_ = nil   -- 当前章节漫画面板数组（来自 ChapterData）
+chapterComicIdx_ = 1        -- 当前章节漫画面板索引
+chapterComicSplashTimer_ = 0     -- splash面板自动推进倒计时（秒）
+chapterComicSplashDelay_ = 0     -- splash面板延迟显示文字倒计时
+chapterComicFirstView_ = true    -- 是否首次观看（控制跳过按钮延迟出现）
 
 -- ============================================================================
 -- 2.5 分店系统数据
@@ -213,7 +262,7 @@ BRANCH_GAMES = {
 }
 
 -- 分店开设费用（按第几家分店递增）
-BRANCH_COSTS = { 5000, 7000, 9000 }
+BRANCH_COSTS = { 2500, 4000, 6000 }
 
 -- ============================================================================
 -- 3. 过场动画系统
@@ -317,12 +366,47 @@ function StartTransition(title, subtitle, onMidpoint, atmosphere, chapterNum)
     transition_.alpha = 0
 end
 
+local TRANSITION_TIMEOUT = 10.0  -- 过场动画最大时长(秒)，超时强制结束
+local transitionElapsed_ = 0
+local transitionWatchdogKilled_ = false  -- 看门狗已强制终止，不再同步 CinematicTransition
+
 function UpdateTransition(dt)
     CinematicTransition.Update(dt)
+
+    -- 如果看门狗已强杀，不再同步内部状态（避免 CinematicTransition 内部 stuck 重新激活代理）
+    if transitionWatchdogKilled_ then
+        -- CinematicTransition 最终会自行结束；等它结束后重置标记
+        if not CinematicTransition.IsActive() then
+            transitionWatchdogKilled_ = false
+        end
+        return
+    end
+
     -- 同步代理状态
     local wasActive = transition_.active
     transition_.active = CinematicTransition.IsActive()
     transition_.alpha = CinematicTransition.GetAlpha()
+
+    -- 超时看门狗：如果转场持续超过 TRANSITION_TIMEOUT 秒，强制终止
+    if transition_.active then
+        transitionElapsed_ = transitionElapsed_ + dt
+        if transitionElapsed_ >= TRANSITION_TIMEOUT then
+            log:Write(LOG_ERROR, "[UpdateTransition] WATCHDOG: transition stuck for " .. string.format("%.1f", transitionElapsed_) .. "s, forcing end")
+            transition_.active = false
+            transition_.phase = "none"
+            transition_.alpha = 0
+            transitionElapsed_ = 0
+            transitionWatchdogKilled_ = true
+            if uiRoot_ == nil then
+                currentPhase_ = currentPhase_ or PHASE_MANAGE
+                pcall(BuildUI)
+            end
+            return
+        end
+    else
+        transitionElapsed_ = 0
+    end
+
     if not transition_.active then
         transition_.phase = "none"
         transition_.alpha = 0
@@ -471,10 +555,161 @@ playerData_ = {
     goalCompleted = {},         -- 已完成目标ID集合
     activePeriodicEvent = nil,  -- 当前周期事件 {id, remainDays, params}
     lastPeriodicDay = {},       -- {eventId = lastTriggerDay}
-    npcStoryProgress = { kofi = 0, grace = 0, snake = 0 },   -- NPC支线剧情阶段
+    npcStoryProgress = { kofi = 0, grace = 0, snake = 0, ada = 0, dj_pulse = 0, mama_b = 0 },   -- NPC支线剧情阶段
+    -- v11 挂机/转生系统
+    automationLevel = 0,        -- 自动化等级 0-4（离线收益倍率）
+    prestigeHonor = 0,          -- 商会名誉（永久货币，转生获得）
+    prestigeCount = 0,          -- 转生次数
+    currentCity = "wakandaville", -- 当前所在城市
+    unlockedCities = { "wakandaville" }, -- 已解锁城市列表
+    prestigeHistory = {},       -- 转生历史记录
+    -- v12 新增：角色组合事件系统
+    comboTriggered = {},        -- 已触发的组合事件ID集合 { [comboId] = true }
+    totalPrestigeEarnings = 0,  -- 跨转生累计总收入
+    -- v13 新增：非洲文化图鉴系统
+    loreUnlocked = {},          -- 已解锁条目 { [entryId] = true }
+    loreNewCount = 0,           -- 未读新解锁数（红点用）
+    loreLastUnlock = nil,       -- 最近解锁条目ID（toast用）
+    loreMaxItemTier = 0,        -- 获得过的最高物品品质
+    loreSpecialItems = {},      -- 获得过的特殊物品 { [itemId] = true }
+    -- v14 新增：旅行者NPC系统
+    currentTraveler = nil,      -- 当前在场旅行者 { id, name, emoji, daysRemaining, offersUsed, ... }
+    travelerLastVisitDay = 0,   -- 上次旅行者来访的天数
+    travelerHistory = {},       -- 旅行者访问记录 { {id, name, day}, ... }
+    travelerBuffs = nil,        -- 活跃buff { traffic={bonus,daysLeft}, income={...}, ... }
+    travelerStoriesHeard = 0,   -- 累计听过的故事数
+    travelerItemsBought = 0,    -- 累计购买的物品数
+    travelerRecruitBonus = 0,   -- 待消耗的招募品质加成次数
+    -- v12 新增：新手引导 + 专精方向 + 里程碑 + 日收支详情
+    tutorialStep = 0,           -- 引导步骤: 0=未开始 1=结束第一天 2=做升级 3=看日记 99=完成
+    specialization = nil,       -- 专精方向: nil/"esports"/"casual"/"trader"
+    specChoiceDay = 0,          -- 专精选择发生的天数（0=尚未选择）
+    prestigeMilestonesClaimed = {}, -- 已领取的转生名誉里程碑集合 { [threshold] = true }
+    statusBarExpanded = false,  -- 状态栏收支明细是否展开
+    upgradeListFilter = "all",  -- 升级列表筛选: "all"/"affordable"/"maxed"
+    dayHistory = {},            -- 每日收入记录 { {day=N, income=X, expense=Y, rep=Z} }
+    honorOfflineBonus = 0,      -- 名誉里程碑赠送的额外离线小时数
+    honorIncomeBonus = 0,       -- 名誉里程碑赠送的收入%加成（整数，如5=+5%）
+    -- v13 今日经营策略卡系统
+    todayStrategy  = nil,       -- 当日策略情境 ID（字符串，nil = 尚未生成）
+    strategyChosen = false,     -- 本日是否已做出选择
+    strategyChoice = nil,       -- "A" 或 "B"
+    -- v13.1 加班系统（方案B）
+    overtimeUsedToday   = false, -- 今日是否已加过班（每天只能一次）
+    endOfDayDurPenalty  = 0,     -- 今日加班累计的设备耐久惩罚（结算时扣除）
 }
 
 teamMembers_ = {}
+
+-- ============================================================================
+-- 今日经营策略卡：情境池
+-- weight 决定抽取概率（权重越大越常见）
+-- optA = 保守方案，optB = 激进/另类方案
+-- sideEffect: { type, amount, chance? }
+--   type: "money"（直接±金额）/ "durability"（设备耐久）/
+--         "reputation"（声望）/ "skill"（全队技术）
+--   chance: 0~1，省略表示必然触发
+-- ============================================================================
+DAILY_STRATEGIES = {
+    {   id = "peak_traffic",
+        weight = 20,
+        icon = "📈", title = "今日客流旺季",
+        hint = "街上电竞氛围高涨，散客比平时多两成。",
+        optA = {
+            label = "正常营业", color = { 70, 140, 200, 200 },
+            desc  = "稳扎稳打，正常收入×1.0",
+            incomeMod = 1.0,
+        },
+        optB = {
+            label = "全力接客", color = { 220, 130, 50, 200 },
+            desc  = "超负荷开机，收入×1.35，但设备耐久-12",
+            incomeMod = 1.35,
+            sideEffect = { type = "durability", amount = -12 },
+        },
+    },
+    {   id = "unstable_power",
+        weight = 18,
+        icon = "⚡", title = "电网今天不稳",
+        hint = "工人区变电站检修，全天有停电风险。",
+        optA = {
+            label = "关半数机位", color = { 70, 140, 200, 200 },
+            desc  = "保守应对，收入×0.7，零停电风险",
+            incomeMod = 0.7,
+        },
+        optB = {
+            label = "赌一把全开", color = { 220, 80, 60, 200 },
+            desc  = "30%概率停电扣$90，否则正常收入×1.0",
+            incomeMod = 1.0,
+            sideEffect = { type = "money", amount = -90, chance = 0.30 },
+        },
+    },
+    {   id = "rival_promo",
+        weight = 18,
+        icon = "🔥", title = "竞对今日降价促销",
+        hint = "Blaze Net 全天半价揽客，客流被分流。",
+        optA = {
+            label = "跟进降价", color = { 70, 140, 200, 200 },
+            desc  = "吸引散客，收入×1.1（量增价减）",
+            incomeMod = 1.1,
+        },
+        optB = {
+            label = "稳住定价", color = { 140, 100, 220, 200 },
+            desc  = "收入×0.85，声望+8；若从未赢过锦标赛，对手趁机额外抢走5%客流",
+            incomeMod = 0.85,
+            -- 方案A: rival_steal 条件型副作用（无冠军时才触发）
+            sideEffect = { type = "rival_steal", amount = 5, condition = "no_tourney_win",
+                           fallback = { type = "reputation", amount = 8 } },
+        },
+    },
+    {   id = "training_sprint",
+        weight = 20,
+        icon = "🎯", title = "队员状态超级在线",
+        hint = "队员今天摩拳擦掌，训练效率绝佳。",
+        optA = {
+            label = "全天正常营业", color = { 70, 140, 200, 200 },
+            desc  = "正常收入×1.0，队员保持现有状态",
+            incomeMod = 1.0,
+        },
+        optB = {
+            label = "压缩营业加练", color = { 100, 200, 120, 200 },
+            desc  = "收入×0.75，全队技术+3（高强度冲刺）",
+            incomeMod = 0.75,
+            sideEffect = { type = "skill", amount = 3 },
+        },
+    },
+    {   id = "media_attention",
+        weight = 12,
+        icon = "📸", title = "记者在街区拍摄",
+        hint = "外地媒体今天在附近蹲点，正是曝光好时机。",
+        optA = {
+            label = "低调经营", color = { 70, 140, 200, 200 },
+            desc  = "正常收入×1.0，保持神秘",
+            incomeMod = 1.0,
+        },
+        optB = {
+            label = "邀请进店采访", color = { 200, 170, 50, 200 },
+            desc  = "收入×0.9（干扰营业），但声望+12",
+            incomeMod = 0.9,
+            sideEffect = { type = "reputation", amount = 12 },
+        },
+    },
+    {   id = "normal_day",
+        weight = 12,
+        icon = "☀️", title = "今天风平浪静",
+        hint = "没有特殊情况，发挥好就能出成绩。",
+        optA = {
+            label = "踏实经营", color = { 70, 140, 200, 200 },
+            desc  = "正常收入×1.0",
+            incomeMod = 1.0,
+        },
+        optB = {
+            label = "限时特惠冲客流", color = { 220, 130, 50, 200 },
+            desc  = "短时促销，收入×1.18，声望+3",
+            incomeMod = 1.18,
+            sideEffect = { type = "reputation", amount = 3 },
+        },
+    },
+}
 eventLog_ = {}
 unlockedAchievements_ = {}  -- 已解锁成就 id 集合
 npcJournal_ = {}  -- NPC 事迹记录 { [npcId] = { events = { {day=, title=, choice=}, ... } } }
@@ -510,6 +745,16 @@ customerAnim_ = {              -- 客流动画状态
 pendingOfflineReward_ = nil     -- 离线收益待领取 {earnings, hours, canDouble}
 pendingTomorrowPreview_ = nil   -- 明日预告内容 {"预告1", "预告2", ...}
 tutorialShownToday_ = false     -- 当日教程事件是否已展示
+pendingUpgradeFeedback_ = nil   -- P0-2 升级效果卡待展示 {key, icon, name, level, timestamp}
+pendingDaySummary_ = nil        -- P0-2 日结分屏弹窗 {day, income, expenses, totalExpense, netIncome, money, tip, storyLines, statusChanges, powerOut}
+daySummaryPage_ = 1             -- 日结分屏当前页码
+pendingDayStartSummary_ = nil  -- P0-B 今日任务清单弹窗 {day, quest, goal, event, teamWarn}
+pendingDoorstepChat_ = nil     -- 门口闲聊弹窗 {character={name,emoji,desc}, line, reward?}
+pendingAchievements_ = nil     -- P2-A 成就解锁队列 [{id,title,icon,desc,reward}, ...]
+dailySpecialEvent_ = nil        -- P1-6 今日特别行动 {icon, title, desc, modifier}
+matchTacticChoice_ = nil        -- P1-5 本场比赛战术选择 "rush"|"stable"|"counter"
+rivalNpcs_ = nil                -- P2-3 竞争对手NPC列表（Day15后激活）
+karma_ = 0                      -- P1-7 道义值（-10~10，影响故事分支）
 
 --- 庆祝粒子动画系统
 celebration_ = {
@@ -519,62 +764,25 @@ celebration_ = {
     particles = {},  -- { x, y, vx, vy, size, r, g, b, a, life }
 }
 
--- ============================================================================
--- 5.5 成就系统
--- ============================================================================
-ACHIEVEMENTS = {
-    { id = "first_recruit",   name = "伯乐初成",   desc = "招募第一位队员" },
-    { id = "full_team",       name = "五虎将",     desc = "组建满编5人战队" },
-    { id = "rich",            name = "非洲首富",   desc = "持有 $3000 以上" },
-    { id = "famous",          name = "名声在外",   desc = "声望达到 200" },
-    { id = "first_friendly",  name = "⚔️ 初出茅庐",   desc = "完成第一场友谊赛" },
-    { id = "friendly_5wins",  name = "常胜将军",   desc = "友谊赛累计 5 胜" },
-    { id = "synergy_first",   name = "🔗 初现联动",   desc = "激活第一个升级联动" },
-    { id = "synergy_3",       name = "联动大师",   desc = "同时激活 3 个升级联动" },
-    { id = "havoc_300",       name = "🪙 哈弗币大亨", desc = "累计获得 300 哈弗币" },
-    { id = "day_30",          name = "老非洲",     desc = "经营满 30 天" },
-    { id = "karma_saint",     name = "非洲圣人",   desc = "karma 达到 +10" },
-    { id = "karma_dark",      name = "商业鬼才",   desc = "karma 达到 -8" },
-    { id = "iron_fortress",   name = "铜墙铁壁",   desc = "激活铁壁网吧联动" },
-    { id = "max_upgrade",     name = "顶级网吧",   desc = "任意一项升级到满级" },
+--- 微反馈视觉动画系统（Module C）
+microFX_ = {
+    -- 浮动文字队列 { text, x, y, timer, duration, color{r,g,b}, fontSize, vx, vy }
+    floats = {},
+    -- 脉冲闪光 { timer, duration, color{r,g,b}, intensity }
+    pulses = {},
+    -- 粒子喷射 { particles = {{x,y,vx,vy,life,r,g,b,size}}, timer, duration }
+    bursts = {},
+    -- 第四面墙彩蛋 { text, timer, duration, alpha }
+    easter = nil,
 }
 
-function CheckAchievementCondition(id)
-    if id == "first_recruit" then return #teamMembers_ >= 1
-    elseif id == "full_team" then return #teamMembers_ >= 5
-    elseif id == "rich" then return playerData_.money >= 3000
-    elseif id == "famous" then return playerData_.reputation >= 200
-    elseif id == "first_friendly" then return playerData_.friendlyWins + playerData_.friendlyLosses >= 1
-    elseif id == "friendly_5wins" then return playerData_.friendlyWins >= 5
-    elseif id == "synergy_first" then return #(CalcUpgradeSynergies()) >= 1
-    elseif id == "synergy_3" then return #(CalcUpgradeSynergies()) >= 3
-    elseif id == "havoc_300" then return playerData_.havocCoins >= 300
-    elseif id == "day_30" then return playerData_.day >= 30
-    elseif id == "karma_saint" then return playerData_.karma >= 10
-    elseif id == "karma_dark" then return playerData_.karma <= -8
-    elseif id == "iron_fortress" then return HasIronFortress()
-    elseif id == "max_upgrade" then
-        return playerData_.chairLevel >= 4 or playerData_.netSpeed >= 4
-            or playerData_.acLevel >= 3 or playerData_.computers >= 12
-    end
-    return false
-end
-
-function CheckAchievements()
-    for _, ach in ipairs(ACHIEVEMENTS) do
-        if not unlockedAchievements_[ach.id] and CheckAchievementCondition(ach.id) then
-            unlockedAchievements_[ach.id] = true
-            AddLog("🏆 成就解锁: " .. ach.name .. " — " .. ach.desc)
-            PlaySFX("victory"); TriggerCelebration()
-        end
-    end
-end
-
-function GetUnlockedCount()
-    local n = 0
-    for _ in pairs(unlockedAchievements_) do n = n + 1 end
-    return n
-end
+-- ============================================================================
+-- 5.5 成就系统（已迁移到 Achievements.lua）
+-- 旧版 ACHIEVEMENTS / CheckAchievements / unlockedAchievements_ 已废弃
+-- 现在统一使用 Achievements.CheckAndUnlock() + playerData_.achievements
+-- ============================================================================
+-- unlockedAchievements_ 保留为空表，仅供旧存档迁移时 AudioSave.lua 读取
+-- 迁移完成后此变量不再写入，也不再用于任何逻辑判断
 
 CANDIDATE_POOL = {
     -- 特色人物（带剧情）
@@ -715,6 +923,7 @@ function RecordNPCEncounter(eventTitle, choiceText)
     local npcIds = EVENT_NPC_MAP[eventTitle]
     if not npcIds then return end
     -- 统一为数组
+    ---@diagnostic disable-next-line: assign-type-mismatch
     if type(npcIds) == "string" then npcIds = { npcIds } end
     for _, npcId in ipairs(npcIds) do
         if not npcJournal_[npcId] then
@@ -774,7 +983,7 @@ CHAPTERS_OLD_ = {
 
 -- 升级配置（含非洲特色）
 UPGRADES = {
-    computer = { name = "加一台电脑",    costs = {800, 1200, 1800, 2500, 3500, 5000, 7000, 10000, 14000, 18000, 25000, 35000}, icon = "🖥️",
+    computer = { name = "加一台电脑",    costs = {500, 900, 1400, 2000, 2800, 4000, 5500, 8000, 11000, 15000, 21000, 28000}, icon = "🖥️",
         desc = "从集市淘来的二手主机",
         levelDesc = {
             "集市淘来的二手戴尔",
@@ -833,4 +1042,90 @@ UPGRADES = {
 UPGRADE_ORDER = { "computer", "chair", "net", "ac", "solar", "food", "deco", "security", "generator" }
 UPGRADE_COMMUNITY = { "well", "road" }
 UPGRADE_CULTURE = { "coffee", "jukebox" }
+
+-- ============================================================================
+-- 天气/季节系统（增强版）
+-- ============================================================================
+-- 天气类型定义：id, emoji, 名称, 颜色, 客流修正, 收入修正, 断电风险修正, 描述
+WEATHER_TYPES = {
+    sunny    = { id = "sunny",    emoji = "☀️",  name = "晴天",   color = {230,180,60,255},  traffic = 0.05, income = 0,    power = 0,    desc = "阳光正好，客人更愿出门" },
+    hot      = { id = "hot",      emoji = "🔥",  name = "酷热",   color = {230,100,50,255},  traffic = 0.10, income = 0.05, power = 0.05, desc = "高温难耐，人们涌进空调房" },
+    cloudy   = { id = "cloudy",   emoji = "☁️",  name = "阴天",   color = {160,170,180,255}, traffic = 0,    income = 0,    power = 0,    desc = "天气平淡，一切如常" },
+    drizzle  = { id = "drizzle",  emoji = "🌦️", name = "小雨",   color = {120,170,210,255}, traffic = -0.05,income = 0,    power = 0,    desc = "毛毛雨，影响不大" },
+    rain     = { id = "rain",     emoji = "🌧️",  name = "大雨",   color = {80,140,220,255},  traffic = -0.15,income = -0.05,power = 0.10, desc = "暴雨如注，出行不便" },
+    storm    = { id = "storm",    emoji = "⛈️",  name = "雷暴",   color = {140,100,200,255}, traffic = -0.25,income = -0.10,power = 0.25, desc = "电闪雷鸣，断电风险极高" },
+    harmattan= { id = "harmattan",emoji = "🏜️",  name = "哈马丹", color = {200,170,100,255}, traffic = -0.10,income = 0,    power = 0,    desc = "沙尘弥漫，呼吸都费劲" },
+    festival = { id = "festival", emoji = "🥁",  name = "节日",   color = {255,200,80,255},  traffic = 0.20, income = 0.15, power = 0,    desc = "节日庆典！人潮涌动" },
+}
+
+-- 季节定义：影响天气概率池
+SEASONS = {
+    { name = "旱季",   emoji = "🌞", dayRange = {1, 8},   weights = { sunny=4, hot=3, cloudy=1, drizzle=0, rain=0, storm=0, harmattan=2, festival=1 } },
+    { name = "过渡期", emoji = "🌤️", dayRange = {9, 14},  weights = { sunny=2, hot=1, cloudy=2, drizzle=2, rain=1, storm=0, harmattan=1, festival=1 } },
+    { name = "雨季",   emoji = "🌊", dayRange = {15, 22}, weights = { sunny=1, hot=0, cloudy=2, drizzle=2, rain=3, storm=2, harmattan=0, festival=1 } },
+    { name = "后雨季", emoji = "🌈", dayRange = {23, 99}, weights = { sunny=2, hot=1, cloudy=2, drizzle=1, rain=2, storm=1, harmattan=0, festival=2 } },
+}
+
+--- 获取当前季节
+function GetCurrentSeason()
+    local day = playerData_ and playerData_.day or 1
+    for _, s in ipairs(SEASONS) do
+        if day >= s.dayRange[1] and day <= s.dayRange[2] then
+            return s
+        end
+    end
+    return SEASONS[#SEASONS]
+end
+
+--- 生成当日天气（在 DailyReset 中调用）
+function GenerateDailyWeather()
+    local season = GetCurrentSeason()
+    -- 构建加权池
+    local pool = {}
+    for wId, weight in pairs(season.weights) do
+        for _ = 1, weight do
+            table.insert(pool, wId)
+        end
+    end
+    if #pool == 0 then pool = { "cloudy" } end
+    local chosen = pool[math.random(1, #pool)]
+    playerData_.todayWeather = chosen
+    return WEATHER_TYPES[chosen]
+end
+
+--- 获取当天天气标签（用于 StatusBar 显示）
+--- @return string label 天气标签文字
+--- @return table color 天气标签颜色 {r,g,b,a}
+function GetWeatherLabel()
+    local wId = playerData_ and playerData_.todayWeather or nil
+    local w = wId and WEATHER_TYPES[wId] or nil
+    if not w then
+        -- 兼容旧存档：基于天数 fallback
+        local day = playerData_ and playerData_.day or 1
+        if day <= 8 then return "☀️", { 230, 160, 60, 255 }, "sunny"
+        elseif day <= 14 then return "🌤️", { 180, 180, 120, 255 }, "cloudy"
+        else return "🌧️", { 100, 170, 230, 255 }, "rain" end
+    end
+    return w.emoji, w.color, w.id
+end
+
+--- 获取当天天气的机制效果
+function GetWeatherEffects()
+    local wId = playerData_ and playerData_.todayWeather or nil
+    local w = wId and WEATHER_TYPES[wId] or nil
+    if not w then return { traffic = 0, income = 0, power = 0 } end
+    return { traffic = w.traffic or 0, income = w.income or 0, power = w.power or 0 }
+end
+
+--- 获取天气详细信息（用于UI提示）
+function GetWeatherInfo()
+    local wId = playerData_ and playerData_.todayWeather or "cloudy"
+    local w = WEATHER_TYPES[wId] or WEATHER_TYPES.cloudy
+    local season = GetCurrentSeason()
+    return {
+        weather = w,
+        season = season,
+        desc = w.desc,
+    }
+end
 

@@ -103,6 +103,35 @@ STORY_EVENTS = {
           playerData_.money = playerData_.money - 40
       end,
     },
+    -- ===== 感情线：小雪入场 =====
+    { id = "xiaoxue_arrival",
+      cond = function()
+          return playerData_.day >= 8
+              and playerData_.bonds
+              and playerData_.bonds.xiaoxue
+              and playerData_.bonds.xiaoxue.stage == 0
+      end,
+      type = "dialogue",
+      title = "🌸 不速之客",
+      dialogues = {
+          { speaker = "旁白", text = "午后，一个拖着行李箱的中国女生推门走进网吧。她满头大汗，脸上写满了疲惫和迷茫。" },
+          { speaker = "小雪", text = "请问……这里有WiFi吗？我手机没信号了，地图打不开，已经走了好久……" },
+          { speaker = "你", text = "当然有。先坐下喝杯水？" },
+          { speaker = "小雪", text = "谢谢……我叫林小雪，刚到这边做志愿者项目。住的地方还没找到……呜……" },
+          { speaker = "你", text = "（看到她行李箱上的中文贴纸——「加油小雪！」——和一只看起来快要散架的充电宝）" },
+          { speaker = "旁白", text = "这是你在非洲遇到的第一个中国同龄人。她看起来比你刚来时更手足无措。" },
+          { speaker = "小雪", text = "（连上WiFi后长舒一口气）终于……啊，老板你也是中国人？！太好了太好了！我以为我是整条街唯一的中国人！" },
+          { speaker = "旁白", text = "你给她指了附近的旅馆，又多灌了一瓶水。她走的时候转身说——" },
+          { speaker = "小雪", text = "我明天能来蹭WiFi吗？我会买东西的！真的！" },
+          { speaker = "旁白", text = "【小雪加入了你的日常。感情线开启。】" },
+      },
+      effect = function()
+          if playerData_.bonds and playerData_.bonds.xiaoxue then
+              playerData_.bonds.xiaoxue.stage = 1
+          end
+      end,
+    },
+
     { id = "snake_conflict",
       cond = function() return HasMember("Snake") and playerData_.day >= 8 end,
       type = "choice",
@@ -342,6 +371,110 @@ STORY_EVENTS = {
       },
       effect = function() playerData_.reputation = playerData_.reputation + 10 end,
     },
+
+    -- ===== P0: Victor 复仇弧线补全 (D8-D11) =====
+    -- 填补 D8-D11 叙事空白，让 Victor 线渗透更早、玩家持续紧张
+    { id = "victor_spy",
+      cond = function()
+          return storyTriggered_["rival_appears"]
+              and playerData_.day >= 8
+              and playerData_.reputation >= 25
+              and not storyTriggered_["victor_spy"]
+      end,
+      type = "dialogue",
+      title = "不速之客",
+      dialogues = {
+          { speaker = "旁白", text = "打烊时，你注意到角落有个人在用手机对着你的设备区拍照。" },
+          { speaker = "你", text = "（走上前）喂，你在干什么？" },
+          { speaker = "陌生人", text = "（慌张收起手机）不、不好意思……我只是觉得你们这里挺酷的，想拍几张……" },
+          { speaker = "Kofi", text = "（从后厨探头）老板！我认得他！上次Gold Net开业那天，他站在Victor旁边的！" },
+          { speaker = "陌生人", text = "（快步向门口走去，撞到椅子）" },
+          { speaker = "旁白", text = "门砰地关上了。Kofi看着那个方向，表情严肃。" },
+          { speaker = "Kofi", text = "Victor已经开始关注我们了，老板。" },
+          { speaker = "旁白", text = "你看了一眼自己的电脑屏幕——上面还开着明天的训练计划。他拍到了多少？\n\n【Victor的情报战已经开始。保持警惕。声望+5】" },
+      },
+      effect = function()
+          playerData_.reputation = playerData_.reputation + 5
+          storyTriggered_["victor_spy"] = true
+      end,
+    },
+    { id = "victor_price_war",
+      cond = function()
+          return storyTriggered_["victor_spy"]
+              and playerData_.day >= 9
+              and not storyTriggered_["victor_price_war"]
+      end,
+      type = "choice",
+      title = "价格战",
+      icon = "💸",
+      desc = "一大早，你的手机就被客户群消息轰炸了。\n\nGold Net 宣布：'新客首周免费体验！老客户半价！'\n\n你的三个常客已经在群里说'去那边看看'了。今天的上座率肉眼可见地下降了两成。\n\n怎么办？",
+      choices = {
+          { text = "💰 跟进打折，老客户本周半价 (-$100)",
+            result = "你在群里发了公告：'Dragon Net 回馈老客户——本周所有熟客半价！'\n\n客人们回来了，几个犹豫的也留住了。但这周的利润会缩水不少。\n\n【-$100，声望+10。客户留存成功。】",
+            effect = function()
+                playerData_.money = playerData_.money - 100
+                playerData_.reputation = playerData_.reputation + 10
+            end,
+          },
+          { text = "💪 不降价，用品质说话",
+            result = "你没有跟进。走了三个尝鲜的新客，但你的核心客户一个没动。\n\nSnake说：'那边机器是新，但网管态度跟狗一样。'\n\n隔壁大妈路过说：'Victor那里空调太冷了，不舒服。'\n\n【声望+5。真正的忠诚经得住考验。】",
+            effect = function()
+                playerData_.reputation = playerData_.reputation + 5
+            end,
+          },
+      },
+      effect = function()
+          storyTriggered_["victor_price_war"] = true
+      end,
+    },
+    { id = "victor_rumor",
+      cond = function()
+          return storyTriggered_["victor_price_war"]
+              and playerData_.day >= 10
+              and not storyTriggered_["victor_rumor"]
+      end,
+      type = "dialogue",
+      title = "流言蜚语",
+      dialogues = {
+          { speaker = "常客", text = "老板，跟你说个事……外面有人传你这里用的是二手翻新电脑，说容易过热死机。" },
+          { speaker = "你", text = "什么？我的机器哪台翻新了？！" },
+          { speaker = "Snake", text = "（阴沉着脸划手机）我查到了。Google Maps上你的网吧突然多了五条一星差评。" },
+          { speaker = "Snake", text = "评论都是同一天注册的新号。IP地址——都在Gold Net附近。" },
+          { speaker = "你", text = "Victor……开始玩阴的了。" },
+          { speaker = "Kofi", text = "老板！要不我们也去给他刷差评！" },
+          { speaker = "你", text = "不。我们不做这种事。" },
+          { speaker = "旁白", text = "你花了一小时逐条举报虚假评论。平台回复说会审核。评分暂时从4.8降到了4.5。" },
+          { speaker = "旁白", text = "这一拳打在了暗处。但Dragon Force的人更团结了——共同的敌人是最好的黏合剂。\n\n【全队士气+5。逆境中的团队更坚固。】" },
+      },
+      effect = function()
+          for _, m in ipairs(teamMembers_) do
+              m.mood = math.min(100, m.mood + 5)
+          end
+          storyTriggered_["victor_rumor"] = true
+      end,
+    },
+    { id = "victor_challenge_preview",
+      cond = function()
+          return storyTriggered_["victor_rumor"]
+              and playerData_.day >= 11
+              and not storyTriggered_["victor_challenge_preview"]
+      end,
+      type = "dialogue",
+      title = "来自AEL的邮件",
+      dialogues = {
+          { speaker = "旁白", text = "你打开邮箱——一封带着AEL（非洲电竞联赛）官方Logo的正式邮件。" },
+          { speaker = "邮件", text = "致 Dragon Net Cafe 战队负责人：\n\n恭喜贵队通过区域积分审核，获邀参加第三赛季预选赛。\n\n同区参赛队伍：Gold Net Gaming (Victor Schneider) 等6支。\n\n比赛日期：三周后。" },
+          { speaker = "Kofi", text = "（握拳）终于！和Victor正面对决的机会！" },
+          { speaker = "Snake", text = "六支队伍……如果八强赛碰上Gold Net，那就是淘汰赛。输了就回家。" },
+          { speaker = "你", text = "那就不能输。" },
+          { speaker = "旁白", text = "三周后的预选赛——这三周，每一天的训练都算数。\n\n你看着队员们的眼神，那里面有紧张，有兴奋，还有一种说不清的光。\n\n【解锁备战目标。距离预选赛还有三周。】" },
+      },
+      effect = function()
+          storyTriggered_["victor_challenge_preview"] = true
+          playerData_.reputation = playerData_.reputation + 5
+      end,
+    },
+
     { id = "victor_provoke",
       cond = function() return storyTriggered_["rival_appears"] and playerData_.day >= 12 end,
       type = "dialogue",
@@ -406,6 +539,226 @@ STORY_EVENTS = {
           { speaker = "旁白", text = "采访播出后引起了巨大反响。越来越多的人知道了Dragon Force。\n\n【声望+30，$+100。Dragon Force的故事传遍了非洲。】" },
       },
       effect = function() playerData_.reputation = playerData_.reputation + 30; playerData_.money = playerData_.money + 100 end,
+    },
+
+    -- ===== P2: AEL赞助体系故事触发 =====
+    { id = "ael_scout_visit",
+      cond = function()
+          return playerData_.day >= 14
+              and (playerData_.reputation or 0) >= 80
+              and #teamMembers_ >= 2
+              and not storyTriggered_["ael_scout_visit"]
+              and not playerData_.aelTier
+      end,
+      type = "choice",
+      title = "AEL球探来访",
+      icon = "🏆",
+      desc = "一个穿着AEL（非洲电竞联赛）Polo衫的男人走进网吧，自我介绍是区域合作经理。\n\n'我们注意到Dragon Force最近的表现。AEL有个铜牌赞助计划，专门面向像你们这样有潜力的新兴战队。'\n\n他递上一份合同：每天$30赞助金，换取品牌曝光和季度考核。",
+      choices = {
+          { text = "✅ 签约铜牌赞助（每日+$30，需完成周任务）",
+            result = "你仔细看完合同条款，签上了名字。AEL的Logo贴上了网吧墙壁。\n\n球探笑着说：'好好干。银牌合同的赞助金是铜牌的两倍多。'\n\n【签约AEL铜牌赞助。每日+$30，训练效率+10%。】",
+            effect = function()
+                playerData_.aelTier = 1
+                playerData_.aelSignDay = playerData_.day
+            end,
+          },
+          { text = "🤔 先不签，再考虑考虑",
+            result = "球探没有强求：'没关系，我的名片留给你。想清楚了随时联系。'\n\n他走后Kofi急了：'老板！免费的钱为什么不要！'\n\n【可稍后通过菜单签约AEL赞助。】",
+            effect = function() end,
+          },
+      },
+      effect = function()
+          storyTriggered_["ael_scout_visit"] = true
+      end,
+    },
+    { id = "ael_silver_offer",
+      cond = function()
+          return (playerData_.aelTier or 0) == 1
+              and playerData_.day >= 20
+              and (playerData_.reputation or 0) >= 150
+              and (playerData_.tournamentWins or 0) >= 2
+              and not storyTriggered_["ael_silver_offer"]
+      end,
+      type = "dialogue",
+      title = "银牌赞助升级",
+      dialogues = {
+          { speaker = "旁白", text = "AEL总部发来了一封正式邮件，标题是：'Dragon Force赞助升级通知'。" },
+          { speaker = "邮件", text = "尊敬的Dragon Force战队：\n\n鉴于贵队出色完成铜牌考核指标，经审核委员会一致通过，现邀请贵队升级至银牌赞助计划。\n\n新权益：每日赞助金$80 + 设备采购折扣20%。" },
+          { speaker = "Kofi", text = "（跳起来）银牌！我们升银牌了！" },
+          { speaker = "Snake", text = "设备折扣……终于可以换个好椅子了。我腰都坐废了。" },
+          { speaker = "旁白", text = "你在升级确认书上签了字。墙上的AEL铜牌标志被换成了银色。\n\n【升级为AEL银牌赞助。每日+$80，设备折扣20%。】" },
+      },
+      effect = function()
+          playerData_.aelTier = 2
+          storyTriggered_["ael_silver_offer"] = true
+      end,
+    },
+    { id = "ael_gold_offer",
+      cond = function()
+          return (playerData_.aelTier or 0) == 2
+              and playerData_.day >= 26
+              and (playerData_.reputation or 0) >= 250
+              and (playerData_.tournamentWins or 0) >= 4
+              and not storyTriggered_["ael_gold_offer"]
+      end,
+      type = "dialogue",
+      title = "金牌赞助——通往世界舞台",
+      dialogues = {
+          { speaker = "旁白", text = "一通视频电话。屏幕那头是AEL的CEO本人——西装笔挺，背景是内罗毕的天际线。" },
+          { speaker = "AEL CEO", text = "Dragon Force。你们是今年非洲区上升最快的战队。我们想把你们推向更大的舞台。" },
+          { speaker = "AEL CEO", text = "金牌赞助。每日$150，全额设备赞助，还有——国际赛名额。" },
+          { speaker = "你", text = "国际赛……？" },
+          { speaker = "AEL CEO", text = "是的。首尔、上海、洛杉矶。你的队员们值得站在那些舞台上。" },
+          { speaker = "Kofi", text = "（握紧拳头，眼眶红了）" },
+          { speaker = "旁白", text = "你看了一眼墙上那面从铁皮板上拆下来改的队旗。这面旗，要飘到世界去了。\n\n【升级为AEL金牌赞助。每日+$150，解锁国际赛资格。】" },
+      },
+      effect = function()
+          playerData_.aelTier = 3
+          storyTriggered_["ael_gold_offer"] = true
+      end,
+    },
+
+    -- ===== P2: 教练系统故事触发 =====
+    { id = "coach_kwame_intro",
+      cond = function()
+          return playerData_.day >= 10
+              and (playerData_.reputation or 0) >= 50
+              and #teamMembers_ >= 2
+              and not storyTriggered_["coach_kwame_intro"]
+              and not playerData_.hiredCoach
+      end,
+      type = "choice",
+      title = "本地教练毛遂自荐",
+      icon = "🏋️",
+      desc = "一个壮实的非洲男人走进网吧，身上穿着加纳国家足球队的旧球衣。\n\n'我叫Kwame。退役足球运动员。我看了你们比赛的录像——你们的心态管理太差了，一落后就崩。'\n\n'我能帮你们。$25一天，我负责体能、心态和团队建设。怎么样？'",
+      choices = {
+          { text = "🤝 雇佣Coach K（每日$25，心情+5/日）",
+            result = "你和Kwame握了手。他第一天就带队员们绕网吧跑了二十圈。\n\nSnake差点没跑死：'这人……真是……足球运动员……'\n\n但跑完之后，每个人的精神状态确实不一样了。\n\n【雇佣Coach K。每日心情+5，技能+1。】",
+            effect = function()
+                playerData_.hiredCoach = "kwame"
+                playerData_.coachHiredDay = playerData_.day
+            end,
+          },
+          { text = "🙅 暂时不需要教练",
+            result = "Kwame不在意地耸耸肩：'没事。我每天早上都在门口那棵树下做俯卧撑。想找我随时来。'\n\n【可稍后通过菜单雇佣教练。】",
+            effect = function() end,
+          },
+      },
+      effect = function()
+          storyTriggered_["coach_kwame_intro"] = true
+      end,
+    },
+    { id = "coach_chen_intro",
+      cond = function()
+          return playerData_.day >= 14
+              and (playerData_.reputation or 0) >= 80
+              and #teamMembers_ >= 2
+              and not storyTriggered_["coach_chen_intro"]
+      end,
+      type = "choice",
+      title = "来自中国的教练",
+      icon = "🎯",
+      desc = "一封邮件引起了你的注意。发件人是一个中文名字——陈磊。\n\n'你好，同胞。我是前WE战队的替补选手，因为手腕伤退役了。现在在非洲做自由教练。'\n\n'看了Dragon Force的比赛，你们有灵魂但缺纪律。我可以帮你们补上这一课。$40/天。'\n\n附件里是他的职业履历和执教计划。",
+      choices = {
+          { text = "🎯 雇佣陈教练（每日$40，技能+3/日，心情-2/日）",
+            result = "陈教练第二天就到了。短寸头、国字脸、说话像下命令。\n\n第一堂课，他让全队反复练习同一个走位配合——足足两个小时。\n\nKofi累得趴在桌上：'这比在地里干活还累……'\n\n陈教练：'疼才是对的。疼说明你在进步。'\n\n【雇佣陈教练。每日技能+3，心情-2。比赛暴击率+15%。】",
+            effect = function()
+                -- 如果已有教练，先解雇
+                if playerData_.hiredCoach then
+                    playerData_.hiredCoach = nil
+                end
+                playerData_.hiredCoach = "chen"
+                playerData_.coachHiredDay = playerData_.day
+            end,
+          },
+          { text = "🙅 暂时不换教练",
+            result = "你礼貌地回复了邮件。陈教练回信很简短：'想好了联系我。'\n\n【可稍后通过菜单雇佣教练。】",
+            effect = function() end,
+          },
+      },
+      effect = function()
+          storyTriggered_["coach_chen_intro"] = true
+      end,
+    },
+    { id = "coach_maria_intro",
+      cond = function()
+          return playerData_.day >= 20
+              and (playerData_.reputation or 0) >= 150
+              and (playerData_.tournamentWins or 0) >= 1
+              and not storyTriggered_["coach_maria_intro"]
+      end,
+      type = "dialogue",
+      title = "数据分析师",
+      dialogues = {
+          { speaker = "旁白", text = "一个戴着方框眼镜的年轻女人推开门，手里拿着一台MacBook。" },
+          { speaker = "Maria", text = "我叫Maria Okafor。拉各斯大学计算机硕士。专注电竞数据分析。" },
+          { speaker = "Maria", text = "（打开电脑展示）这是你们上场比赛的数据。中期资源分配有17%的冗余，轮换节奏偏慢3秒。" },
+          { speaker = "Kofi", text = "（目瞪口呆）她怎么知道的……" },
+          { speaker = "Maria", text = "我能把你们的每一场比赛转化为数据。$55一天。贵？等你看到胜率变化再说。" },
+          { speaker = "旁白", text = "Maria教练已解锁。可通过菜单雇佣。\n\n【数据分析教练解锁。每日$55，技能+2，比赛胜率加成+20%。】" },
+      },
+      effect = function()
+          storyTriggered_["coach_maria_intro"] = true
+      end,
+    },
+
+    -- ===== P3: 城市解锁预兆事件（声望系统叙事加强）=====
+    { id = "city_lagos_foreshadow",
+      cond = function()
+          return (playerData_.prestigeHonor or 0) >= 60
+              and not storyTriggered_["city_lagos_foreshadow"]
+              and not (playerData_.unlockedCities and #playerData_.unlockedCities > 1)
+      end,
+      type = "dialogue",
+      title = "来自拉各斯的邀请",
+      dialogues = {
+          { speaker = "旁白", text = "一封挂号信从拉各斯寄来——信封上印着商会的金色徽章。" },
+          { speaker = "信件", text = "尊敬的 Dragon Net Cafe 负责人：\n\n西非网吧商会关注到贵店在瓦坎达维尔的出色经营。\n\n我们在拉各斯的分会有数个空缺席位。若贵方有意扩展业务至拉各斯，商会可提供政策支持。\n\n此致" },
+          { speaker = "Kofi", text = "拉各斯！那可是两千万人口的大城市！我有个表哥在那边！" },
+          { speaker = "你", text = "（看着信沉思）拉各斯……意味着更大的市场，也意味着更大的挑战。" },
+          { speaker = "旁白", text = "你把信小心地收进抽屉。这不是今天的决定。但梦想的种子，已经种下了。\n\n【商会名誉积累中。继续发展即可解锁拉各斯。】" },
+      },
+      effect = function()
+          storyTriggered_["city_lagos_foreshadow"] = true
+          playerData_.reputation = playerData_.reputation + 10
+      end,
+    },
+    { id = "city_nairobi_foreshadow",
+      cond = function()
+          return (playerData_.prestigeHonor or 0) >= 200
+              and not storyTriggered_["city_nairobi_foreshadow"]
+      end,
+      type = "dialogue",
+      title = "硅谷在召唤",
+      dialogues = {
+          { speaker = "旁白", text = "你的网吧故事上了非洲科技博客。评论区里有一条引起了你的注意——" },
+          { speaker = "评论", text = "'如果Dragon Force来内罗毕，我第一个报名。这里是东非硅谷，科技氛围是瓦坎达维尔的十倍。@DragonNet 考虑一下？'" },
+          { speaker = "Grace", text = "老板，内罗毕的科技园区有政府补贴，网费比我们这里便宜40%。" },
+          { speaker = "你", text = "内罗毕……从铁皮屋走向写字楼，也许不远了。" },
+          { speaker = "旁白", text = "你截了图存进了手机相册。Dream bigger。\n\n【声望和名誉继续增长中。内罗毕——不再遥不可及。】" },
+      },
+      effect = function()
+          storyTriggered_["city_nairobi_foreshadow"] = true
+      end,
+    },
+    { id = "prestige_ready_hint",
+      cond = function()
+          local okPS, PS = pcall(require, "PrestigeSystem")
+          if not okPS or not PS then return false end
+          local canP, _, _ = PS.CanPrestige()
+          return canP and not storyTriggered_["prestige_ready_hint"]
+      end,
+      type = "dialogue",
+      title = "是时候了",
+      dialogues = {
+          { speaker = "旁白", text = "你站在网吧门口，看着夕阳下的小镇。这里的一切都开始运转得很好了。" },
+          { speaker = "内心", text = "你翻开笔记本——上面密密麻麻记录着每一天的经营心得。从第一天的手忙脚乱，到现在的游刃有余。", type = "monologue" },
+          { speaker = "内心", text = "也许……是时候想想更大的事情了。这个小镇已经装不下Dragon Force的野心了。", type = "monologue" },
+          { speaker = "旁白", text = "你看了一眼抽屉里那封来自拉各斯商会的信。\n\n也许，是时候翻开新的一页了。\n\n【你已满足转生条件。前往「管理」→「自动化」面板查看扩张选项。】" },
+      },
+      effect = function()
+          storyTriggered_["prestige_ready_hint"] = true
+      end,
     },
 
     -- ===== 队员个人事件 =====
@@ -817,6 +1170,65 @@ STORY_EVENTS = {
             end },
       },
     },
+    -- 2-C 新增：竞对特使造访（Day 20-23，rivalNpcs_ 已激活且声望 >= 60）
+    { id = "rival_envoy_visit",
+      cond = function()
+          return playerData_.day >= 20 and playerData_.day <= 23
+              and rivalNpcs_ ~= nil
+              and (playerData_.reputation or 0) >= 60
+              and not storyTriggered_["rival_envoy_visit"]
+      end,
+      type = "choice",
+      title = "对手的使者",
+      icon = "🤝",
+      desc = "一个穿着 Blaze Net 队服的年轻人走进了你的网吧，礼貌地递上一张名片。\n\n'Blaze Net 的老板想见你。他说……你们的网吧越来越像个威胁了。'\n\n'他的提议是：停止参加本赛季锦标赛，换取 Blaze Net 不再故意压低你们的客流。'\n\n Mama B 把抹布摔在了台上。",
+      choices = {
+          { text = "🚫 拒绝：在自己的地盘认输？没门！",
+            result = "你站起来，把名片还给他：'告诉你老板，Dragon Net 退赛？做梦。'\n\n年轻人尴尬地笑了笑，走出门时小声说：'其实……我也觉得你们比他们强。'\n\nMama B 高声喊道：'好！就该这样！'\n\n【拒绝收买，声望 +15，karma +1。Blaze Net 本周抢客力度 +5%，但你赢得了尊重。】",
+            effect = function()
+                playerData_.reputation = (playerData_.reputation or 0) + 15
+                playerData_.karma = (playerData_.karma or 0) + 1
+                if rivalNpcs_ and rivalNpcs_[1] then
+                    rivalNpcs_[1].stealPct = math.min(30, (rivalNpcs_[1].stealPct or 15) + 5)
+                end
+            end },
+          { text = "🤔 听他说完：也许有条件可以谈？",
+            result = "你让他坐下，听完了所有条件。\n\n'停赛换取停手……这不是合作，这是勒索。'\n\n你把条件改成了：'我们继续参赛，但愿意共同举办一场公开表演赛，让两家的客户都看到真正的实力对决。'\n\n使者沉默片刻，说'我会转告'后离开了。\n\n【展现气度，声望 +10，Blaze Net 抢客力度本周降低 3%。互相尊重的竞争，才是长久之道。】",
+            effect = function()
+                playerData_.reputation = (playerData_.reputation or 0) + 10
+                if rivalNpcs_ and rivalNpcs_[1] then
+                    rivalNpcs_[1].stealPct = math.max(5, (rivalNpcs_[1].stealPct or 15) - 3)
+                end
+            end },
+      },
+    },
+    -- 2-C 新增：忠实粉丝团形成（Day 22-26，computers >= 6 且总收入 >= 800）
+    { id = "loyal_fans_formation",
+      cond = function()
+          return playerData_.day >= 22 and playerData_.day <= 26
+              and (playerData_.computers or 0) >= 6
+              and (playerData_.totalEarnings or 0) >= 800
+              and not storyTriggered_["loyal_fans_formation"]
+      end,
+      type = "dialogue",
+      title = "第一批死忠粉",
+      dialogues = {
+          { speaker = "旁白", text = "你注意到每天下午三点，总有同样的五张面孔出现在网吧门口——还没开门就在等。" },
+          { speaker = "少年甲", text = "老板！今天有训练赛吗？我们专门来看 Dragon Force 的！" },
+          { speaker = "你", text = "……你们每天都来？" },
+          { speaker = "少年乙", text = "当然！上次 Kofi 那个六杀，全学校都在传！我们给你们做了应援牌！" },
+          { speaker = "旁白", text = "他从背包里掏出一块硬纸板，上面歪歪扭扭地写着 'GO DRAGON FORCE'，还画了一条金色的龙。" },
+          { speaker = "Kofi", text = "（小声凑过来）老板……这些是我们的粉丝吗？" },
+          { speaker = "你", text = "（看着那块纸板，一时不知道说什么好）" },
+          { speaker = "旁白", text = "你让他们进来，给每个人送了一瓶可乐。\n\n从那天起，下午三点，网吧门口总会有一群孩子在等着看训练。有时候带来自己种的芒果，有时候带来自制的加油横幅。\n\n【首批忠实粉丝！声望 +25，全队心情 +10。你们不只是在赢比赛，你们在成为这个地方的希望。】" },
+      },
+      effect = function()
+          playerData_.reputation = (playerData_.reputation or 0) + 25
+          for _, m in ipairs(teamMembers_) do m.mood = math.min(100, m.mood + 10) end
+          playerData_.karma = (playerData_.karma or 0) + 1
+          storyTriggered_["loyal_fans_formation"] = true
+      end,
+    },
     { id = "african_esports_media",
       cond = function() return playerData_.day >= 22 and playerData_.reputation >= 100 end,
       type = "dialogue",
@@ -874,6 +1286,100 @@ STORY_EVENTS = {
           playerData_.karma = playerData_.karma + 1
       end,
     },
+    -- =====================================================================
+    -- 3-B 竞对叙事事件线：Victor / Gold Net 的兴衰弧
+    -- =====================================================================
+
+    { id = "gold_net_inner_crisis",
+      cond = function()
+          return playerData_.day >= 26 and playerData_.day <= 32
+              and (storyTriggered_["victor_sabotage"] or storyTriggered_["rival_envoy_visit"])
+              and (playerData_.reputation or 0) >= 90
+              and not storyTriggered_["gold_net_inner_crisis"]
+      end,
+      type = "dialogue",
+      title = "Gold Net 内部裂痕",
+      dialogues = {
+          { speaker = "旁白", text = "Mama B把一叠打印的截图放在你桌上，表情意味深长。" },
+          { speaker = "Mama B", text = "你看看这个。Gold Net的队员在群里吵起来了，有人截图发出来了。" },
+          { speaker = "旁白", text = "截图显示，Gold Net的韩国教练已经离职，理由是'Victor不尊重球员'。三名队员私聊吐槽训练强度太大、奖金被克扣。" },
+          { speaker = "你", text = "……Victor把人逼得太紧了。" },
+          { speaker = "Mama B", text = "有钱没心，留不住人。就算用金钱堆出来的队，也只是雇佣兵。" },
+          { speaker = "你", text = "（看着训练中的Dragon Force）我们不一样。这里的每个人都是自己选择留下来的。" },
+          { speaker = "旁白", text = "当天晚上，Gold Net 的一名替补队员悄悄发来私信：'我能来Dragon Net面试吗？'\n\n【Gold Net 出现内乱。你的声望进一步提升，全赛区都在看你如何应对。声望+15。】" },
+      },
+      effect = function()
+          playerData_.reputation = (playerData_.reputation or 0) + 15
+          storyTriggered_["gold_net_inner_crisis"] = true
+      end,
+    },
+
+    { id = "victor_last_gambit",
+      cond = function()
+          return playerData_.day >= 30 and playerData_.day <= 36
+              and storyTriggered_["gold_net_inner_crisis"]
+              and (playerData_.reputation or 0) >= 120
+              and not storyTriggered_["victor_last_gambit"]
+      end,
+      type = "choice",
+      title = "Victor 的最后赌注",
+      icon = "🎰",
+      desc = "Victor 出现在网吧门口，这次没有嘲讽，没有随从。他独自一人，看起来比上次苍老了很多。\n\n'我直说吧。Gold Net 的投资人要撤资了。我需要在最后一场大赛中赢你，否则我就没有谈判筹码。'\n\n'……我想提议——把这场比赛办成一场真正的公开商业赛事。你我各出$500，请媒体直播，门票收入五五分。输家退出本赛区锦标赛系列。'\n\n'赢家，赢一切。'",
+      choices = {
+          { text = "⚔️ 接受决战：赢就赢个彻底",
+            result = "'成交。'\n\nVictor第一次正眼看了你。不是轻蔑，是某种久违的尊重。\n\n'Dragon Force……你们是我见过的，资金最少但士气最高的队。我希望你们赢，是因为这圈子需要你们这样的故事。'\n\n三天后，公开赛的票在两小时内售罄。\n\n【-$500，锦标赛奖励翻倍。声望+20，karma+1。】",
+            effect = function()
+                playerData_.money = (playerData_.money or 0) - 500
+                playerData_.reputation = (playerData_.reputation or 0) + 20
+                playerData_.karma = (playerData_.karma or 0) + 1
+                playerData_.victorFinalBet = true
+            end,
+            cond = function() return (playerData_.money or 0) >= 500 end },
+          { text = "🤝 拒绝赌注，提议友谊赛",
+            result = "'我不打赌注赛。但如果你想要一场公开赛——我们可以办，不设输家条款，让观众决定谁是真正的王者。'\n\nVictor沉默了很久，最后说：'……你比我想象的更有意思。'\n\n友谊赛如期举行，两队都赢得了观众。\n\n【声望+25，karma+2。没有输家的赛场，才是真正的胜利。】",
+            effect = function()
+                playerData_.reputation = (playerData_.reputation or 0) + 25
+                playerData_.karma = (playerData_.karma or 0) + 2
+            end },
+      },
+      effect = function() storyTriggered_["victor_last_gambit"] = true end,
+    },
+
+    { id = "gold_net_dissolution",
+      cond = function()
+          return playerData_.day >= 34 and playerData_.day <= 40
+              and storyTriggered_["victor_last_gambit"]
+              and (playerData_.totalTourney or 0) >= 2
+              and not storyTriggered_["gold_net_dissolution"]
+      end,
+      type = "dialogue",
+      title = "Gold Net 的落幕",
+      dialogues = {
+          { speaker = "旁白", text = "一个周五的傍晚，Gold Net 的门口挂上了'暂停营业'的牌子。" },
+          { speaker = "旁白", text = "Victor 的投资人已经正式撤资。那批从欧洲运来的顶级设备，据说要被当二手货处理。" },
+          { speaker = "旁白", text = "Kofi 把手机塞到你面前：'老板，你看，Victor 发朋友圈了。'" },
+          { speaker = "Victor（朋友圈）", text = "'我在非洲待了两年，输给了一间铁皮屋。我以为钱可以买到一切，但我错了。Dragon Force 那些孩子有我永远买不到的东西——他们热爱这件事本身。祝你们好。'" },
+          { speaker = "你", text = "（看完，沉默片刻）" },
+          { speaker = "Kofi", text = "老板……你不高兴吗？我们赢了啊！" },
+          { speaker = "你", text = "我高兴。只是……希望他还有机会找到那种热爱。" },
+          { speaker = "旁白", text = "一周后，Victor 亲自来到 Dragon Net，把 Gold Net 最后一批品质最好的键盘留给了你们。\n\n'给那些孩子用吧。设备本来就不该白费在我这种地方。'\n\n【竞对叙事完结。Dragon Force 正式成为本赛区无可争议的第一。声望+30，全队技术+5。】" },
+      },
+      effect = function()
+          playerData_.reputation = (playerData_.reputation or 0) + 30
+          for _, m in ipairs(teamMembers_) do m.skill = math.min(SKILL_CAP, m.skill + 5) end
+          playerData_.karma = (playerData_.karma or 0) + 1
+          storyTriggered_["gold_net_dissolution"] = true
+          -- 清除 Gold Net 作为竞争对手的威胁
+          if rivalNpcs_ then
+              for _, r in ipairs(rivalNpcs_) do
+                  if r.name and r.name:find("Gold Net") then
+                      r.stealPct = 0; r.active = false
+                  end
+              end
+          end
+      end,
+    },
+
     { id = "pre_tournament_crisis",
       cond = function() return playerData_.day >= 30 and playerData_.totalTourney >= 1 end,
       type = "choice",
@@ -1280,6 +1786,157 @@ STORY_EVENTS = {
           for _,m in ipairs(teamMembers_) do if m.name == "Thunder" then m.skill = math.min(SKILL_CAP, m.skill + 5) end end
           playerData_.reputation = playerData_.reputation + 25; playerData_.money = playerData_.money + 200
       end,
+    },
+
+    -- ── P1-7 Karma 双路线局（光明 / 黑暗）──
+    -- 光明路线：karma >= 8，Grace 第20天后揭示人脉资源
+    {
+        id = "grace_light_path",
+        cond = function()
+            if (playerData_.day or 1) < 20 then return false end
+            if not storyTriggered_["grace_secret"] then return false end
+            if playerData_.karma == nil or playerData_.karma < 8 then return false end
+            for _, m in ipairs(teamMembers_) do
+                if m.name == "Grace" then return true end
+            end
+            return false
+        end,
+        type = "choice",
+        title = "🌟 恩典的礼物",
+        icon = "🌟",
+        desc = "Grace找到了你，神情有些激动……",
+        choices = {
+            {
+                text = "💡 让她牵线，尝试合作",
+                result = function()
+                    playerData_.money = playerData_.money + 500
+                    playerData_.reputation = playerData_.reputation + 25
+                    playerData_.karma = playerData_.karma + 2
+                    for _, m in ipairs(teamMembers_) do
+                        if m.name == "Grace" then
+                            m.mood = math.min(100, m.mood + 20)
+                            m.skill = math.min(SKILL_CAP, m.skill + 8)
+                        end
+                    end
+                    AddLog("🌟 Grace的人脉资源带来了 $500 赞助，声望+25，Grace 技术+8。")
+                    return "Grace笑得很灿烂：「老板，谢谢你从第一天就信任我。这些人脉，我早就想用来回报你了。」"
+                end,
+            },
+            {
+                text = "🙏 婉拒，不想麻烦她的关系网",
+                result = function()
+                    playerData_.karma = playerData_.karma + 1
+                    for _, m in ipairs(teamMembers_) do
+                        if m.name == "Grace" then
+                            m.mood = math.min(100, m.mood + 10)
+                        end
+                    end
+                    AddLog("🌟 你婉拒了Grace的好意，但她更尊重你了。Karma+1，Grace 心情+10。")
+                    return "Grace眼里闪过一丝感动：「你真的很特别，老板。我在这里做的每一件事都值得。」"
+                end,
+            },
+        },
+        dialogues_prefix = {
+            { speaker = "Grace", text = "老板，我……我有件事想跟你说。我爸爸认识几个企业赞助商，他们对我们战队很感兴趣。" },
+            { speaker = "Grace", text = "我知道我一直没提，是因为……我不想靠关系走捷径。但现在我觉得，我们值得拥有更好的资源。" },
+            { speaker = "你", text = "Grace，你确定这是你真心想做的，不是为了我？" },
+            { speaker = "Grace", text = "（坚定地点头）我确定。你一直相信我，现在我想用行动来回报。" },
+        },
+    },
+    -- 黑暗路线：karma <= -8，Snake 提出走暗门捷径
+    {
+        id = "snake_dark_path",
+        cond = function()
+            if (playerData_.day or 1) < 20 then return false end
+            if playerData_.karma == nil or playerData_.karma > -8 then return false end
+            for _, m in ipairs(teamMembers_) do
+                if m.name == "Snake" then return true end
+            end
+            return false
+        end,
+        type = "choice",
+        title = "🐍 蛇的提议",
+        icon = "🐍",
+        desc = "Snake把你拉到一个无人角落，低声说……",
+        choices = {
+            {
+                text = "💰 接受，利益至上",
+                result = function()
+                    playerData_.money = playerData_.money + 800
+                    playerData_.karma = playerData_.karma - 3
+                    playerData_.reputation = math.max(0, playerData_.reputation - 10)
+                    for _, m in ipairs(teamMembers_) do
+                        if m.name == "Grace" then
+                            m.mood = math.max(0, m.mood - 20)
+                        end
+                    end
+                    AddLog("🐍 你接受了Snake的提议，得到 $800 但 Karma-3，声望-10，Grace 心情-20（她知道了）。")
+                    return "Snake皮笑肉不笑：「聪明。兄弟，这条路走了就停不下来——但赢的感觉，你懂的。」"
+                end,
+            },
+            {
+                text = "🚫 拒绝，这不是我想要的胜利",
+                result = function()
+                    playerData_.karma = playerData_.karma + 3
+                    for _, m in ipairs(teamMembers_) do
+                        if m.name == "Snake" then
+                            m.mood = math.max(0, m.mood - 10)
+                        end
+                    end
+                    playerData_.reputation = playerData_.reputation + 5
+                    AddLog("✋ 你拒绝了Snake，Karma+3，声望+5。Snake不满，但这是你的底线。")
+                    return "你直视着Snake：「我们可以慢慢赢，但不能这样赢。」\n\nSnake沉默了很久，然后冷哼一声走开了。"
+                end,
+            },
+        },
+        dialogues_prefix = {
+            { speaker = "Snake", text = "老板，我认识个人……他可以在下场比赛前拿到对手的战术情报。" },
+            { speaker = "Snake", text = "钱的事好谈，$300 搞定。赢了比赛至少收回来十倍。你懂的。" },
+            { speaker = "你", text = "……这不是正当渠道吧？" },
+            { speaker = "Snake", text = "（冷笑）这个世界上有几个人靠正当渠道赢到顶的？老板，你最近日子也不好过。这是条捷径。" },
+        },
+    },
+
+    -- ── P1-1 专精方向选择（第5天触发，且尚未选择）──
+    {
+        id = "specialization_choice",
+        type = "choice",
+        title = "🔱 经营方向抉择",
+        icon = "🔱",
+        desc = "你已经撑过了最难的头几天。现在，Big Joe 和两个街坊朋友围坐在你的网吧里，各自给出了不同的建议……",
+        cond = function()
+            return (playerData_.day or 1) >= 5
+                and (playerData_.specChoiceDay or 0) == 0
+        end,
+        choices = {
+            {
+                text = "⚔️ 电竞路线 — 专注比赛训练，打出名气",
+                result = function()
+                    playerData_.specialization = "esports"
+                    playerData_.specChoiceDay = playerData_.day
+                    AddLog("⚔️ 【专精：电竞】你决定走电竞之路！比赛奖励 +30%，队员训练效率 +20%。")
+                    return "Big Joe竖起大拇指：「好样的！只有打出名堂，街坊才真正尊重你。」"
+                end,
+            },
+            {
+                text = "☕ 休闲路线 — 打造舒适氛围，留住回头客",
+                result = function()
+                    playerData_.specialization = "casual"
+                    playerData_.specChoiceDay = playerData_.day
+                    AddLog("☕ 【专精：休闲】你选择做人气最旺的街坊聚点！日收入 +20%，客流上限 +5。")
+                    return "Mama B笑道：「孩子，留住人心，钱就跟着来了。咖啡和音乐，是灵魂的食物。」"
+                end,
+            },
+            {
+                text = "💼 商贸路线 — 囤货转手，钱生钱",
+                result = function()
+                    playerData_.specialization = "trader"
+                    playerData_.specChoiceDay = playerData_.day
+                    AddLog("💼 【专精：商贸】你走上了商贸之路！黑市折扣 -20%，每日被动收入 +15$。")
+                    return "Kwame压低声音：「兄弟，真正的财富从不靠苦力——让系统替你跑腿。」"
+                end,
+            },
+        },
     },
 }
 

@@ -1,15 +1,42 @@
 ---@diagnostic disable: undefined-global
+---@diagnostic disable: assign-type-mismatch
+---@diagnostic disable: param-type-mismatch
 -- ============================================================================
 -- 13. 经营界面（带背景图）
 -- ============================================================================
+local ProgressiveUnlock = require("ProgressiveUnlock")
+local IdleEngine = require("IdleEngine")
+local PrestigeSystem = require("PrestigeSystem")
+local Retention = require("Retention")
+local NPCStorylines = require("NPCStorylines")
+local UIMapView = require("UIMapView")
+local UICollection = require("UICollection")
+require("UIPanel_Upgrade")
+require("UIPanel_Actions")
+require("UIPanel_Team")
+require("UIPanel_Prestige")
+require("UIPanel_Status")
+require("UIPanel_Daily")
+goldExpanded_ = goldExpanded_ or false  -- 黄金交易面板展开状态
+mapViewOpen_ = mapViewOpen_ or false    -- 帝国版图面板状态
+showEndDayAdPopup_ = showEndDayAdPopup_ or false  -- EndDay翻倍收入广告弹窗
 function BuildManageTabBar()
-    local tabs = {
+    local allTabs = {
         { key = "action",  label = "经营" },
         { key = "upgrade", label = "升级" },
         { key = "team",    label = "团队" },
         { key = "market",  label = "市场" },
+        { key = "collection", label = "图鉴" },
         { key = "ranking", label = "排行榜" },
     }
+    -- 渐进解锁：仅显示已解锁Tab
+    local tabs = {}
+    for _, t in ipairs(allTabs) do
+        local unlockKey = "tab_" .. t.key
+        if t.key == "action" or ProgressiveUnlock.IsUnlocked(unlockKey) then
+            table.insert(tabs, t)
+        end
+    end
     local tabChildren = {}
     for _, t in ipairs(tabs) do
         local isActive = (manageTab_ == t.key)
@@ -33,6 +60,392 @@ function BuildManageTabBar()
         backgroundColor = C.tabBg,
         borderBottomWidth = 1, borderColor = C.tabBorder,
         children = tabChildren,
+    }
+end
+
+--- 底部导航栏（像素风格，放大按钮）
+function BuildBottomNavBar()
+    -- 角标数据
+    -- 团队角标：可招募 或 有NPC可聊
+    local teamBadge = nil
+    if #(CANDIDATE_POOL or {}) > 0 and #teamMembers_ < 5 then
+        teamBadge = "!"
+    elseif NPCStorylines and NPCStorylines.CanAdvanceNpc then
+        -- 检查是否有已解锁NPC可推进剧情
+        local NPC_IDS = { "kofi", "grace", "snake" }
+        for _, nid in ipairs(NPC_IDS) do
+            if NPCStorylines.CanAdvanceNpc(nid) then
+                teamBadge = "💬"
+                break
+            end
+        end
+    end
+    -- 自动化升级就绪角标
+    local autoBadge = nil
+    local autoLv = playerData_.automationLevel or 0
+    if autoLv < 4 then
+        local canUp, _ = IdleEngine.CanUnlockAutomation(autoLv + 1)
+        if canUp then autoBadge = "!" end
+    end
+    -- 转生就绪角标
+    if not autoBadge and PrestigeSystem.CanPrestige() then autoBadge = "⭐" end
+
+    -- 免费抽角标：每日未使用免费抽时显示提醒
+    local marketBadge = nil
+    if not playerData_.marketDailyFree then
+        marketBadge = "免费"
+    end
+
+    local allTabs = {
+        { key = "action",     icon = "🏠", label = "经营",   badge = nil },
+        { key = "upgrade",    icon = "⬆",  label = "升级",   badge = nil },
+        { key = "team",       icon = "👥", label = "团队",   badge = teamBadge },
+        { key = "automation", icon = "🤖", label = "自动化", badge = autoBadge },
+        { key = "market",     icon = "🛒", label = "市场",   badge = marketBadge },
+        { key = "ranking",    icon = "🏆", label = "排行榜", badge = nil },
+    }
+    -- 渐进解锁：仅显示已解锁的Tab
+    local tabs = {}
+    for _, t in ipairs(allTabs) do
+        local unlockKey = "tab_" .. t.key
+        if t.key == "action" or ProgressiveUnlock.IsUnlocked(unlockKey) then
+            table.insert(tabs, t)
+        end
+    end
+    local tabItems = {}
+    for _, t in ipairs(tabs) do
+        local isActive = (manageTab_ == t.key)
+        -- 角标气泡
+        local badgeNode = nil
+        if t.badge then
+            local badgeText = type(t.badge) == "number" and tostring(t.badge) or t.badge
+            badgeNode = UI.Panel {
+                position = "absolute", top = 0, right = 2,
+                minWidth = 18, height = 18, borderRadius = PX.radius,
+                backgroundColor = C.red,
+                justifyContent = "center", alignItems = "center",
+                paddingHorizontal = 4,
+                borderWidth = PX.border, borderColor = C.card,
+                children = {
+                    UI.Label { text = badgeText, fontSize = 10, fontWeight = "bold", fontColor = { 255, 255, 255, 255 } },
+                },
+            }
+        end
+        -- 激活状态：图标上方圆角高亮条
+        local activePill = isActive and UI.Panel {
+            position = "absolute", top = 0, left = "20%", right = "20%",
+            height = 3, borderRadius = 2,
+            backgroundColor = C.accent,
+        } or nil
+
+        -- 动态构建子列表，避免 nil 放在首位导致 ipairs 中断
+        local tabChildren = {}
+        if activePill then table.insert(tabChildren, activePill) end
+        table.insert(tabChildren, UI.Panel {
+            width = 34, height = 28, borderRadius = 10,
+            justifyContent = "center", alignItems = "center",
+            backgroundColor = isActive and { C.accent[1], C.accent[2], C.accent[3], 35 } or { 0,0,0,0 },
+            children = {
+                UI.Label { text = t.icon, fontSize = 20, textAlign = "center" },
+            },
+        })
+        table.insert(tabChildren, UI.Label {
+            text = t.label, fontSize = 10,
+            fontColor = isActive and C.accent or C.textLight,
+            fontWeight = isActive and "bold" or "normal",
+            textAlign = "center", marginTop = 2,
+        })
+        if badgeNode then table.insert(tabChildren, badgeNode) end
+
+        table.insert(tabItems, UI.Panel {
+            flex = 1, height = 66,
+            justifyContent = "center", alignItems = "center",
+            paddingTop = 8, paddingBottom = 6,
+            backgroundColor = { 0, 0, 0, 0 },
+            onClick = function()
+                if manageTab_ ~= t.key then PlaySFX("page_turn") end
+                manageTab_ = t.key
+                BuildUI()
+            end,
+            children = tabChildren,
+        })
+    end
+    return UI.Panel {
+        width = "100%", height = 66, flexDirection = "row",
+        backgroundColor = C.card,
+        borderTopWidth = 1, borderColor = { C.border[1], C.border[2], C.border[3], 120 },
+        children = tabItems,
+    }
+end
+
+--- 热区按钮辅助（透明绝对定位，含小标签）
+local function HotspotBtn(props)
+    local disabled = props.disabled
+    local bgColor = disabled and { 0, 0, 0, 60 } or { 0, 0, 0, 80 }
+    local labelColor = disabled and { 180, 170, 160, 180 } or { 253, 245, 230, 240 }
+    local children = {
+        UI.Label {
+            text = props.label, fontSize = 11, fontWeight = "bold",
+            fontColor = labelColor, textAlign = "center",
+        },
+    }
+    if props.price then
+        table.insert(children, UI.Label {
+            text = props.price, fontSize = 10,
+            fontColor = disabled and C.textLight or C.gold,
+            textAlign = "center",
+        })
+    end
+    if props.badge then
+        table.insert(children, 1, UI.Panel {
+            position = "absolute", top = 2, right = 2,
+            width = 8, height = 8, borderRadius = PX.radiusSm,
+            backgroundColor = C.red or { 255, 80, 80, 255 },
+        })
+    end
+    return UI.Panel {
+        position = "absolute",
+        top = props.top, left = props.left,
+        right = props.right, bottom = props.bottom,
+        width = props.width, height = props.height,
+        backgroundColor = bgColor,
+        borderRadius = PX.radius,
+        borderWidth = disabled and 0 or PX.border,
+        borderColor = { 253, 245, 230, 60 },
+        justifyContent = "center", alignItems = "center", gap = 1,
+        onClick = not disabled and props.onClick or nil,
+        children = children,
+    }
+end
+
+--- 沉浸式广告专区条带（全景与行动区之间）
+--- 横向滚动排列可用的激励广告，紧凑醒目
+function BuildAdBanner()
+    local items = {}
+    local day = playerData_.day
+
+    -- 1. 翻倍昨日收入 / 经营补贴
+    local lastNet = playerData_.lastNetIncome or 0
+    if AdManager.CanWatch("double_income", day) then
+        local bonus = lastNet > 0 and lastNet or math.max(50, math.floor(day * 8))
+        local label = lastNet > 0
+            and ("翻倍收入 +$" .. bonus)
+            or  ("经营补贴 +$" .. bonus)
+        table.insert(items, AdManager.AdButton {
+            sceneId = "double_income", day = day,
+            text = "📺 " .. label,
+            height = 34, fontSize = 11, borderRadius = PX.radius,
+            paddingHorizontal = 12,
+            backgroundColor = { 40, 80, 40, 220 },
+            fontColor = C.moneyGreen,
+            borderWidth = PX.border, borderColor = { C.moneyGreen[1], C.moneyGreen[2], C.moneyGreen[3], 100 },
+            onReward = function()
+                playerData_.money = playerData_.money + bonus
+                playerData_.totalEarnings = (playerData_.totalEarnings or 0) + bonus
+                playerData_.lastNetIncome = 0
+                AddLog("🎬 赞助商追加了经营奖励！额外获得$" .. bonus .. "！")
+                BuildUI()
+            end,
+        })
+    end
+
+    -- 2. 额外行动点（AP耗尽时）
+    local noAP = (playerData_.actionPoints or 0) <= 0
+    if noAP and AdManager.CanWatch("extra_ap", day) then
+        table.insert(items, AdManager.AdButton {
+            sceneId = "extra_ap", day = day,
+            text = "📺 恢复行动 +1AP",
+            height = 34, fontSize = 11, borderRadius = PX.radius,
+            paddingHorizontal = 12,
+            backgroundColor = { 80, 50, 30, 220 },
+            fontColor = C.gold,
+            borderWidth = PX.border, borderColor = { C.gold[1], C.gold[2], C.gold[3], 100 },
+            onReward = function()
+                playerData_.actionPoints = playerData_.actionPoints + 1
+                AddLog("🎬 赞助商的能量饮料让你恢复了精力！行动点+1")
+                BuildUI()
+            end,
+        })
+    end
+
+    -- 3. 赞助商中心（提前确定奖励，展示给玩家看）
+    if AdManager.CanWatch("sponsor_small", day) then
+        local rewards = {
+            { label = "$30现金",   fn = function() playerData_.money = playerData_.money + 30; playerData_.totalEarnings = (playerData_.totalEarnings or 0) + 30; AddLog("📺 赞助商小额赞助 +$30！") end },
+            { label = "声望+5",   fn = function() playerData_.reputation = playerData_.reputation + 5; AddLog("📺 赞助商帮你在社交媒体曝光！声望+5") end },
+            { label = "设备+10%", fn = function() playerData_.equipCondition = math.min(100, (playerData_.equipCondition or 80) + 10); AddLog("📺 赞助商寄来零件！设备状态+10%") end },
+            { label = "行动点+1", fn = function() playerData_.actionPoints = playerData_.actionPoints + 1; AddLog("📺 赞助商的咖啡让你精力充沛！行动点+1") end },
+        }
+        -- 提前确定奖励，让玩家知道会得到什么（提升点击率）
+        local preRoll = rewards[math.random(1, #rewards)]
+        table.insert(items, AdManager.AdButton {
+            sceneId = "sponsor_small", day = day,
+            text = "📺 看短片得 " .. preRoll.label,
+            height = 34, fontSize = 11, borderRadius = PX.radius,
+            paddingHorizontal = 12,
+            backgroundColor = { 60, 46, 70, 220 },
+            fontColor = { 200, 180, 255, 255 },
+            borderWidth = PX.border, borderColor = { 160, 130, 200, 100 },
+            onReward = function()
+                preRoll.fn()
+                playerData_.questAdWatchCount = (playerData_.questAdWatchCount or 0) + 1
+                PlaySFX("coin")
+                BuildUI()
+            end,
+        })
+    end
+
+    -- 没有可用广告时不显示
+    if #items == 0 then return nil end
+
+    return UI.Panel {
+        width = "100%",
+        backgroundColor = { 20, 16, 12, 200 },
+        paddingHorizontal = 8, paddingVertical = 5,
+        children = {
+            UI.ScrollView {
+                width = "100%", height = 44,
+                scrollDirection = "horizontal",
+                showScrollIndicator = false,
+                children = {
+                    UI.Panel {
+                        flexDirection = "row", gap = 8, alignItems = "center",
+                        height = "100%",
+                        children = items,
+                    },
+                },
+            },
+        },
+    }
+end
+
+--- 全景像素图（纯氛围展示 + 气泡装饰 + 底部入口浮标）
+cafePopupOpen_ = cafePopupOpen_ or false
+function BuildPanoramaSection()
+    local cafeImg = GetCafeSceneImage()
+
+    -- 对话气泡（网吧顾客的像素风对话，增加趣味性）
+    local CAFE_DIALOGUES = {
+        "再来一局！", "网速快点啊", "老板加个钟",
+        "这把稳赢！", "队友太菜了", "泡面好了没",
+        "网管！加冰！", "今晚通宵！", "上分了上分了",
+        "别催马上好", "太上头了", "键盘手感不错",
+    }
+    local d = playerData_.day or 1
+    local dIdx1 = (d * 3 + 1) % #CAFE_DIALOGUES + 1
+
+    local bubble1 = nil
+    if cafeImg ~= SCENE_IMAGES.cafe_empty and cafeImg ~= SCENE_IMAGES.cafe_blackout then
+        bubble1 = UI.Panel {
+            position = "absolute", top = 4, left = 8,
+            paddingHorizontal = 5, paddingVertical = 2,
+            backgroundColor = { 255, 255, 245, 180 },
+            borderRadius = PX.radiusSm,
+            borderWidth = PX.border, borderColor = { 50, 35, 25, 200 },
+            children = {
+                UI.Label { text = CAFE_DIALOGUES[dIdx1], fontSize = 8,
+                    fontColor = { 40, 30, 20, 255 } },
+            },
+        }
+    end
+
+    -- 夜间时段标识（右上角小标签）
+    local hourNow = os.date("*t").hour
+    local nightBadge = nil
+    if hourNow >= 22 or hourNow < 6 then
+        local isOvn = hourNow >= 1 and hourNow < 5
+        nightBadge = UI.Panel {
+            position = "absolute", top = 4, right = 8,
+            paddingHorizontal = 5, paddingVertical = 1,
+            backgroundColor = { 30, 20, 50, 200 },
+            borderRadius = PX.radiusSm,
+            borderWidth = PX.border, borderColor = { 100, 80, 160, 200 },
+            children = {
+                UI.Label { text = isOvn and "包夜中" or "夜间", fontSize = 8, fontWeight = "bold",
+                    fontColor = { 200, 180, 255, 255 } },
+            },
+        }
+    end
+
+    -- 动态构建全景图子列表
+    local panoramaChildren = {}
+    if bubble1 then table.insert(panoramaChildren, bubble1) end
+    if nightBadge then table.insert(panoramaChildren, nightBadge) end
+
+    -- 帝国版图入口（左下角浮标，Day 10+ 或有转生进度时显示）
+    local showMapBtn = ProgressiveUnlock.IsUnlocked("prestige_preview")
+        or (playerData_.prestigeHonor or 0) > 0
+        or #(playerData_.unlockedCities or {}) > 1
+    if showMapBtn then
+        local conqueredN = #(playerData_.unlockedCities or { "wakandaville" })
+        table.insert(panoramaChildren, UI.Panel {
+            position = "absolute", bottom = 40, left = 6,
+            paddingHorizontal = 6, paddingVertical = 3,
+            backgroundColor = { 20, 40, 30, 200 },
+            borderRadius = 8,
+            borderWidth = 1, borderColor = { 80, 140, 60, 180 },
+            flexDirection = "row", alignItems = "center", gap = 3,
+            onClick = function()
+                mapViewOpen_ = true
+                PlaySFX("click")
+                BuildUI()
+            end,
+            children = {
+                UI.Label { text = "🌍", fontSize = 11 },
+                UI.Label { text = "版图", fontSize = 9, fontWeight = "bold",
+                    fontColor = { 140, 220, 120, 255 } },
+                UI.Label { text = conqueredN .. "/7", fontSize = 8,
+                    fontColor = { 100, 180, 80, 200 } },
+            },
+        })
+    end
+
+    -- 📖 非洲文化图鉴入口（右下角浮标，Day 5+ 显示）
+    if (playerData_.day or 1) >= 5 and LoreSystem then
+        local totalEntries = LoreSystem.ENTRIES and #LoreSystem.ENTRIES or 0
+        local unlocked = playerData_.loreUnlocked or {}
+        local unlockedN = 0
+        for _ in pairs(unlocked) do unlockedN = unlockedN + 1 end
+        local newCount = playerData_.loreNewCount or 0
+        local badgeChildren = {
+            UI.Label { text = "📖", fontSize = 11 },
+            UI.Label { text = "图鉴", fontSize = 9, fontWeight = "bold",
+                fontColor = { 200, 180, 120, 255 } },
+            UI.Label { text = unlockedN .. "/" .. totalEntries, fontSize = 8,
+                fontColor = { 160, 140, 100, 200 } },
+        }
+        -- 红点：有新解锁
+        if newCount > 0 then
+            table.insert(badgeChildren, UI.Panel {
+                width = 16, height = 16, borderRadius = 8,
+                backgroundColor = { 220, 60, 60, 240 },
+                justifyContent = "center", alignItems = "center",
+                children = {
+                    UI.Label { text = tostring(newCount), fontSize = 9, fontWeight = "bold",
+                        fontColor = { 255, 255, 255, 255 } },
+                },
+            })
+        end
+        table.insert(panoramaChildren, UI.Panel {
+            position = "absolute", bottom = 40, right = 6,
+            paddingHorizontal = 6, paddingVertical = 3,
+            backgroundColor = { 40, 30, 20, 200 },
+            borderRadius = 8,
+            borderWidth = 1, borderColor = { 140, 110, 50, 180 },
+            flexDirection = "row", alignItems = "center", gap = 3,
+            onClick = function()
+                OpenLorePanel()
+                PlaySFX("click")
+                BuildUI()
+            end,
+            children = badgeChildren,
+        })
+    end
+
+    return UI.Panel {
+        width = "100%", height = 80,
+        backgroundImage = cafeImg, backgroundFit = "cover",
+        children = panoramaChildren,
     }
 end
 
@@ -167,524 +580,103 @@ function ValidatePlayerData()
     else
         teamMembers_ = {}
     end
-end
+    -- v12 新字段（旧存档兼容）
+    p.tutorialStep = p.tutorialStep or 0
+    p.specialization = p.specialization or nil
+    p.specChoiceDay = p.specChoiceDay or 0
+    p.prestigeMilestonesClaimed = p.prestigeMilestonesClaimed or {}
+    if p.statusBarExpanded == nil then p.statusBarExpanded = false end
+    p.upgradeListFilter = p.upgradeListFilter or "all"
+    p.honorOfflineBonus = p.honorOfflineBonus or 0
+    p.honorIncomeBonus = p.honorIncomeBonus or 0
+    -- v11 自动化/转生（旧存档兼容）
+    p.automationLevel = p.automationLevel or 0
+    p.prestigeHonor = p.prestigeHonor or 0
+    p.prestigeCount = p.prestigeCount or 0
+    p.currentCity = p.currentCity or "wakandaville"
+    p.unlockedCities = p.unlockedCities or { "wakandaville" }
+    p.prestigeHistory = p.prestigeHistory or {}
+    p.totalPrestigeEarnings = p.totalPrestigeEarnings or 0
 
--- ============================================================================
--- 日记页面：按天倒序展示每日氛围描写 + 事件日志
--- ============================================================================
-function BuildDiaryPage()
-    local currentDay = playerData_.day or 1
+    -- ── AEL 赞助系统字段（旧存档兼容） ──
+    p.aelTier = p.aelTier or 0
+    p.weeklyWins = p.weeklyWins or 0
+    p.weeklyTrainCount = p.weeklyTrainCount or 0
+    p.weeklyIncome = p.weeklyIncome or 0
+    p.weeklyRepGain = p.weeklyRepGain or 0
+    p.weeklyWinStreak = p.weeklyWinStreak or 0
 
-    -- 收集所有有记录的天数并倒序排列
-    local days = {}
-    for d, _ in pairs(diaryEntries_) do
-        table.insert(days, d)
-    end
-    table.sort(days, function(a, b) return a > b end)
+    -- ── 教练系统字段（旧存档兼容） ──
+    -- hiredCoach / coachHiredDay: nil 表示未雇佣，无需强制赋值
 
-    -- 如果当天还没有日记条目，先创建占位
-    if not diaryEntries_[currentDay] then
-        diaryEntries_[currentDay] = { atmo = cachedAtmoText_ or "", logs = {} }
-        if not days[1] or days[1] ~= currentDay then
-            table.insert(days, 1, currentDay)
-        end
-    end
+    -- ── 成就系统字段（旧存档兼容） ──
+    p.achievements = p.achievements or {}
+    p.mailbox = p.mailbox or {}
 
-    if #days == 0 then
-        return UI.Panel {
-            width = "100%", padding = 16, alignItems = "center",
-            children = {
-                UI.Label { text = "店长日记", fontSize = 18, fontColor = C.accent },
-                UI.Label { text = "还没有日记记录\n经营网吧后这里会记录每天的故事", fontSize = 13, fontColor = C.textDim, whiteSpace = "normal" },
-            },
-        }
-    end
+    -- ── 彩蛋系统字段（旧存档兼容） ──
+    p.eggsTriggered = p.eggsTriggered or {}
+    p.eggCounters = p.eggCounters or {}
+    p.eggPrestigeCount = p.eggPrestigeCount or 0
 
-    local dayCards = {}
+    -- ── 事件联动系统字段（旧存档兼容） ──
+    p.linkagesClaimed = p.linkagesClaimed or {}
 
-    -- 标题
-    table.insert(dayCards, UI.Panel {
-        width = "100%", paddingHorizontal = 4, paddingBottom = 4,
-        flexDirection = "row", alignItems = "center", justifyContent = "space-between",
-        children = {
-            UI.Label { text = "店长日记", fontSize = 16, fontColor = C.accent },
-            UI.Label { text = "共 " .. #days .. " 天", fontSize = 12, fontColor = C.textDim },
-        },
-    })
+    -- ── 章节系统字段（旧存档兼容） ──
+    p.chapterCompleted = p.chapterCompleted or {}
 
-    for _, day in ipairs(days) do
-        local entry = diaryEntries_[day]
-        local isToday = (day == currentDay)
-        local isExpanded = expandedDiaryDays_[day] == true
+    -- ── 每日问候字段（旧存档兼容） ──
+    p.dailyGreetingShownDay = p.dailyGreetingShownDay or 0
 
-        -- 日期标题
-        local dayTitle = "第 " .. day .. " 天"
-        if isToday then dayTitle = dayTitle .. "（今天）" end
+    -- ── 渐进解锁字段（旧存档兼容） ──
+    p.unlocksNotified = p.unlocksNotified or {}
 
-        -- 摘要：取氛围文字前30字 + 日志条数
-        local summary = ""
-        if entry.atmo and entry.atmo ~= "" then
-            local atmoPreview = entry.atmo
-            -- 截取前30个UTF-8字符作为摘要
-            local charCount = 0
-            local bytePos = 1
-            while charCount < 30 and bytePos <= #atmoPreview do
-                local b = string.byte(atmoPreview, bytePos)
-                if b < 128 then bytePos = bytePos + 1
-                elseif b < 224 then bytePos = bytePos + 2
-                elseif b < 240 then bytePos = bytePos + 3
-                else bytePos = bytePos + 4 end
-                charCount = charCount + 1
-            end
-            if bytePos <= #atmoPreview then
-                summary = string.sub(atmoPreview, 1, bytePos - 1) .. "…"
-            else
-                summary = atmoPreview
+    -- ── RetentionV2 补充字段（旧存档兼容） ──
+    if p.loginStreakClaimed == nil then p.loginStreakClaimed = false end
+    p.marketFreeDraws = p.marketFreeDraws or 0
+
+    -- ── 装饰系统字段（旧存档兼容） ──
+    p.decoSlots = p.decoSlots or {}
+    p.decoSlotsMax = p.decoSlotsMax or 3
+
+    -- ── 其他杂项字段（旧存档兼容） ──
+    p.nearBankruptCount = p.nearBankruptCount or 0
+    p.questStreak = p.questStreak or 0
+    p.dayHistory = p.dayHistory or {}
+    p.cityFacilities = p.cityFacilities or {}
+
+    -- ── v13 经营策略卡字段（旧存档兼容） ──
+    -- todayStrategy / strategyChoice: nil 表示未生成/未选择，无需强制赋值
+    if p.strategyChosen == nil then p.strategyChosen = false end
+    if p.overtimeUsedToday == nil then p.overtimeUsedToday = false end
+    p.endOfDayDurPenalty = p.endOfDayDurPenalty or 0
+
+    -- 🔒 安全检测：activeUpgrade_ 卡住修复
+    -- 如果 activeUpgrade_ 有值但升级计时器已归零（非跨日模式），说明 CompleteUpgrade 曾崩溃
+    if activeUpgrade_ then
+        local isStuck = false
+        if upgradeCompletionDay_ and upgradeCompletionDay_ > 0 then
+            -- 跨日模式：如果当前天数已超过完工日，强制完成
+            if (p.day or 1) > upgradeCompletionDay_ + 1 then
+                isStuck = true
             end
         else
-            summary = isToday and "今天的故事还在书写中……" or "平淡的一天"
+            -- 实时模式：如果 upgradeTimeLeft_ <= 0 说明早该完成了
+            if (upgradeTimeLeft_ or 0) <= 0 and (upgradeTotalTime_ or 0) <= 0 then
+                isStuck = true
+            end
         end
-        local logCount = (entry.logs and #entry.logs) or 0
-        local logHint = logCount > 0 and ("  " .. logCount .. "条记录") or ""
-
-        -- 卡片颜色
-        local cardBg = isToday and C.diary_today or C.diary_past
-        local borderCol = isToday and { C.accent[1], C.accent[2], C.accent[3], 80 } or C.border
-
-        -- 构建卡片子元素
-        local cardChildren = {}
-
-        -- 日期头 + 展开/收起按钮（一行）
-        local dayNum = day  -- 闭包捕获
-        table.insert(cardChildren, UI.Panel {
-            width = "100%", flexDirection = "row", alignItems = "center",
-            justifyContent = "space-between",
-            children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 6, flex = 1,
-                    children = {
-                        UI.Label {
-                            text = isToday and "●" or "○",
-                            fontSize = 14,
-                        },
-                        UI.Label {
-                            text = dayTitle,
-                            fontSize = 14, fontWeight = "bold",
-                            fontColor = isToday and C.accent or C.textDim,
-                        },
-                    },
-                },
-                UI.Button {
-                    text = isExpanded and "▲ 收起" or "▼ 展开",
-                    variant = "text",
-                    fontSize = 11,
-                    fontColor = C.accent,
-                    paddingHorizontal = 8, paddingVertical = 2,
-                    onClick = function()
-                        expandedDiaryDays_[dayNum] = not expandedDiaryDays_[dayNum]
-                        BuildUI()
-                    end,
-                },
-            },
-        })
-
-        if isExpanded then
-            -- ==== 展开状态：显示完整内容 ====
-            local contentChildren = {}
-
-            -- 氛围描写
-            if entry.atmo and entry.atmo ~= "" then
-                table.insert(contentChildren, UI.Label {
-                    text = entry.atmo,
-                    fontSize = 13, fontColor = C.text,
-                    whiteSpace = "normal", lineHeight = 1.6, width = "100%",
-                })
-            end
-
-            -- 事件日志
-            if entry.logs and #entry.logs > 0 then
-                if entry.atmo and entry.atmo ~= "" then
-                    table.insert(contentChildren, UI.Panel {
-                        width = "100%", height = 1, marginVertical = 6,
-                        backgroundColor = { 210, 180, 140, 60 },
-                    })
-                end
-                for _, logText in ipairs(entry.logs) do
-                    table.insert(contentChildren, UI.Label {
-                        text = logText,
-                        fontSize = 12, fontColor = C.textDim,
-                        whiteSpace = "normal", lineHeight = 1.4, width = "100%",
-                    })
-                end
-            end
-
-            if #contentChildren == 0 then
-                table.insert(contentChildren, UI.Label {
-                    text = isToday and "今天的故事还在书写中……" or "平淡的一天，没有特别的事发生。",
-                    fontSize = 12, fontColor = C.textDim, whiteSpace = "normal",
-                })
-            end
-
-            table.insert(cardChildren, UI.Panel {
-                width = "100%", gap = 4, paddingLeft = 4, paddingTop = 4,
-                children = contentChildren,
-            })
-        else
-            -- ==== 收起状态：只显示一行摘要 ====
-            table.insert(cardChildren, UI.Label {
-                text = summary .. logHint,
-                fontSize = 12, fontColor = C.textDim,
-                whiteSpace = "nowrap",
-                paddingLeft = 4, paddingTop = 2,
-            })
-        end
-
-        table.insert(dayCards, UI.Panel {
-            width = "100%", padding = 10, gap = 4,
-            backgroundColor = cardBg, borderRadius = 10,
-            borderWidth = 1, borderColor = borderCol,
-            boxShadow = isToday and { { x = 0, y = 2, blur = 12, color = { C.accent[1], C.accent[2], C.accent[3], 40 } } } or nil,
-            children = cardChildren,
-        })
-    end
-
-    return UI.Panel {
-        width = "100%", padding = 8, gap = 8,
-        backgroundColor = C.card, borderRadius = 12,
-        borderWidth = 1, borderColor = C.border,
-        children = dayCards,
-    }
-end
-
--- ============================================================================
--- 人物页面：展示已遇到的 NPC 及其事迹（保留函数，不再在 Tab 中展示）
--- ============================================================================
-function BuildPeoplePage()
-    -- 预计算每个 NPC 可触发的不同事件标题数（用于判断故事是否完整）
-    local npcTotalEvents = {}  -- npcId → { title1=true, title2=true, ... }
-    for title, ids in pairs(EVENT_NPC_MAP) do
-        local idList = (type(ids) == "string") and { ids } or ids
-        for _, npcId in ipairs(idList) do
-            if not npcTotalEvents[npcId] then npcTotalEvents[npcId] = {} end
-            npcTotalEvents[npcId][title] = true
+        if isStuck then
+            log:Write(LOG_WARNING, "[Validate] activeUpgrade_ stuck at '" .. tostring(activeUpgrade_) .. "', force clearing")
+            activeUpgrade_ = nil
+            upgradeTimeLeft_ = 0
+            upgradeTotalTime_ = 0
+            upgradeCost_ = nil
+            upgradeCompletionDay_ = nil
+            if AddLog then AddLog("⚠️ 检测到升级状态异常，已自动修复") end
         end
     end
-
-    -- 统计
-    local metCount = 0
-    local fullCount = 0
-
-    -- 构建卡片
-    local npcCards = {}
-    for _, profile in ipairs(NPC_PROFILES) do
-        local journal = npcJournal_[profile.id]
-        local isMet = journal ~= nil and #journal.events > 0
-
-        -- 计算已触发的不同事件标题
-        local seenTitles = {}
-        if journal then
-            for _, ev in ipairs(journal.events) do
-                seenTitles[ev.title] = true
-            end
-        end
-        local seenCount = 0
-        for _ in pairs(seenTitles) do seenCount = seenCount + 1 end
-
-        -- 该 NPC 总共有几种事件
-        local totalKinds = 0
-        if npcTotalEvents[profile.id] then
-            for _ in pairs(npcTotalEvents[profile.id]) do totalKinds = totalKinds + 1 end
-        end
-
-        local isFullStory = isMet and totalKinds > 0 and seenCount >= totalKinds
-
-        if isMet then metCount = metCount + 1 end
-        if isFullStory then fullCount = fullCount + 1 end
-
-        if isMet then
-            -- ====== 已相遇：完整卡片 ======
-            local eventCount = #journal.events
-
-            -- 状态徽章
-            local badge, badgeColor, badgeBg
-            if isFullStory then
-                badge = "✦ 故事完整"
-                badgeColor = { 255, 215, 0, 255 }
-                badgeBg = { 255, 200, 0, 30 }
-            else
-                badge = "已相遇 " .. seenCount .. "/" .. totalKinds
-                badgeColor = C.green
-                badgeBg = { C.green[1], C.green[2], C.green[3], 25 }
-            end
-
-            -- 构建事迹列表（最近 5 条）
-            local eventItems = {}
-            local startIdx = math.max(1, eventCount - 4)
-            for i = startIdx, eventCount do
-                local ev = journal.events[i]
-                local line = "第" .. ev.day .. "天 · " .. ev.title
-                if ev.choice then
-                    line = line .. " → " .. string.gsub(ev.choice, "^[%S]+ ", "")
-                end
-                table.insert(eventItems, UI.Label {
-                    text = "  · " .. line,
-                    fontSize = 11, fontColor = { C.blue[1], C.blue[2], C.blue[3], 200 },
-                    whiteSpace = "normal", width = "100%",
-                })
-            end
-            if startIdx > 1 then
-                table.insert(eventItems, 1, UI.Label {
-                    text = "  ...还有 " .. (startIdx - 1) .. " 条更早的记录",
-                    fontSize = 10, fontColor = C.textDim,
-                })
-            end
-
-            table.insert(npcCards, UI.Panel {
-                width = "100%", padding = 10, gap = 4,
-                backgroundColor = isFullStory and { 255, 215, 0, 10 } or { 255, 255, 255, 15 },
-                borderRadius = 8,
-                borderWidth = isFullStory and 1 or 0,
-                borderColor = isFullStory and { 255, 215, 0, 40 } or { 0, 0, 0, 0 },
-                children = {
-                    UI.Panel {
-                        width = "100%", flexDirection = "row", alignItems = "center", gap = 8,
-                        children = {
-                            UI.Label { text = profile.emoji, fontSize = 22 },
-                            UI.Panel {
-                                flex = 1, gap = 1,
-                                children = {
-                                    UI.Panel {
-                                        flexDirection = "row", alignItems = "center", gap = 6,
-                                        children = {
-                                            UI.Label { text = profile.name, fontSize = 14, fontColor = C.text },
-                                            UI.Label { text = profile.role, fontSize = 10, fontColor = C.accent,
-                                                backgroundColor = { 240, 180, 80, 30 }, paddingLeft = 4, paddingRight = 4,
-                                                paddingTop = 1, paddingBottom = 1, borderRadius = 4 },
-                                        },
-                                    },
-                                    UI.Label { text = profile.bio, fontSize = 11, fontColor = C.textDim, whiteSpace = "normal" },
-                                },
-                            },
-                            UI.Label { text = badge, fontSize = 10, fontColor = badgeColor,
-                                backgroundColor = badgeBg, paddingLeft = 5, paddingRight = 5,
-                                paddingTop = 2, paddingBottom = 2, borderRadius = 6 },
-                        },
-                    },
-                    UI.Panel {
-                        width = "100%", gap = 2, marginTop = 4,
-                        borderWidth = { 1, 0, 0, 0 }, borderColor = { 255, 255, 255, 20 },
-                        paddingTop = 4,
-                        children = eventItems,
-                    },
-                },
-            })
-        else
-            -- ====== 未相遇：悬念卡片（展示线索刺激解锁欲望）======
-            local teaseText = profile.tease or ("据说附近有一位" .. profile.role .. "，也许某天会出现……")
-            local hintText = profile.hint or "持续经营，等待命运的安排"
-            table.insert(npcCards, UI.Panel {
-                width = "100%", padding = 10, gap = 6,
-                backgroundColor = { 240, 180, 100, 15 },
-                borderRadius = 8,
-                borderWidth = 1, borderColor = { 210, 180, 130, 30 },
-                children = {
-                    UI.Panel {
-                        width = "100%", flexDirection = "row", alignItems = "center", gap = 8,
-                        children = {
-                            UI.Label { text = "?", fontSize = 22 },
-                            UI.Panel {
-                                flex = 1, gap = 1,
-                                children = {
-                                    UI.Panel {
-                                        flexDirection = "row", alignItems = "center", gap = 6,
-                                        children = {
-                                            UI.Label { text = "???", fontSize = 14, fontColor = { 130, 130, 130, 200 } },
-                                            UI.Label { text = profile.role, fontSize = 10, fontColor = { 130, 130, 130, 180 },
-                                                backgroundColor = { 200, 210, 80, 20 }, paddingLeft = 4, paddingRight = 4,
-                                                paddingTop = 1, paddingBottom = 1, borderRadius = 4 },
-                                        },
-                                    },
-                                    UI.Label { text = teaseText, fontSize = 11, fontColor = { 120, 120, 120, 160 },
-                                        whiteSpace = "normal", fontStyle = "italic" },
-                                },
-                            },
-                            UI.Label { text = "锁", fontSize = 16, fontColor = { 160, 140, 110, 120 } },
-                        },
-                    },
-                    UI.Panel {
-                        width = "100%", paddingTop = 4, paddingLeft = 30,
-                        borderWidth = { 1, 0, 0, 0 }, borderColor = { 230, 170, 80, 20 },
-                        children = {
-                            UI.Label { text = "" .. hintText, fontSize = 10, fontColor = { 160, 140, 100, 120 },
-                                whiteSpace = "normal" },
-                        },
-                    },
-                },
-            })
-        end
-    end
-
-    -- 底部统计
-    table.insert(npcCards, UI.Panel {
-        width = "100%", alignItems = "center", paddingTop = 8, gap = 2,
-        children = {
-            UI.Label {
-                text = "已相遇 " .. metCount .. "/" .. #NPC_PROFILES .. " 位居民   ✦ 故事完整 " .. fullCount .. "/" .. #NPC_PROFILES,
-                fontSize = 11, fontColor = C.textDim,
-            },
-            metCount >= #NPC_PROFILES and fullCount >= #NPC_PROFILES and UI.Label {
-                text = "你改变了瓦坎达维尔每一个人的生活！",
-                fontSize = 12, fontColor = { 255, 215, 0, 220 },
-            } or UI.Panel { height = 0 },
-        },
-    })
-
-    -- 标题
-    table.insert(npcCards, 1, UI.Panel {
-        width = "100%", alignItems = "center", paddingBottom = 4,
-        children = {
-            UI.Label { text = "人物志 · 瓦坎达维尔的人们", fontSize = 16, fontColor = C.accent },
-            UI.Label { text = "你在这片土地上遇到的每一个人，都因你而不同。", fontSize = 11, fontColor = C.textDim, whiteSpace = "normal" },
-        },
-    })
-
-    return UI.Panel {
-        width = "100%", gap = 8,
-        children = npcCards,
-    }
 end
 
--- ── 独立面板：赛季通行证（原RV2方案10，移至升级Tab） ──
-local function BuildSeasonPassPanel()
-    if not RV2 then return nil end
-    local sp = RV2.GetSeasonPassStatus()
-    if sp.points <= 0 and (playerData_.day or 1) < 3 then return nil end
-    local rewardItems = {}
-    for _, r in ipairs(sp.rewards) do
-        local claimed = sp.claimedRewards[tostring(r.points)]
-        local canClaim = not claimed and sp.points >= r.points
-        table.insert(rewardItems, UI.Panel {
-            flexDirection = "row", alignItems = "center", gap = 6,
-            width = "100%", padding = 4,
-            backgroundColor = canClaim and { 80, 160, 80, 60 } or { 0, 0, 0, 0 },
-            borderRadius = 6,
-            children = {
-                UI.Label { text = r.icon, fontSize = 16, width = 24 },
-                UI.Label { text = r.points .. "分", fontSize = 12, fontColor = C.textLight, width = 36 },
-                UI.Label { text = r.desc, fontSize = 12, fontColor = claimed and C.textDim or C.text, flex = 1 },
-                claimed and UI.Label { text = "✅", fontSize = 14 }
-                    or (canClaim and UI.Button {
-                        text = "领取", fontSize = 11, height = 28, width = 48,
-                        variant = "primary",
-                        onClick = function()
-                            local msg = RV2.ClaimSeasonPassReward(r.points)
-                            if msg then AddLog(msg) end
-                            BuildUI()
-                        end,
-                    } or UI.Label { text = "🔒", fontSize = 14 }),
-            },
-        })
-    end
-    return UI.Panel {
-        width = "100%", padding = 10, borderRadius = 10,
-        backgroundColor = { 40, 40, 65, 180 },
-        borderWidth = 1, borderColor = { 120, 100, 200, 80 },
-        gap = 6,
-        children = {
-            UI.Panel {
-                width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                children = {
-                    UI.Label { text = "🏅 赛季通行证", fontSize = 15, fontWeight = "bold", fontColor = { 200, 180, 255, 240 } },
-                    UI.Label { text = sp.points .. " 分", fontSize = 13, fontColor = { 255, 220, 100, 220 } },
-                },
-            },
-            table.unpack(rewardItems),
-        },
-    }
-end
-
--- ── 独立面板：免费迷你游戏（原RV2方案1，移至团队Tab） ──
-local function BuildFreeMiniGamePanel()
-    if not RV2 then return nil end
-    local freePlays = RV2.GetFreeMiniGamePlays()
-    if freePlays <= 0 then return nil end
-    local streakText = (playerData_.miniGameStreak or 0) > 0
-        and ("🔥 连胜 x" .. playerData_.miniGameStreak .. " 奖励加成！") or ""
-    return UI.Panel {
-        width = "100%", padding = 10, borderRadius = 10,
-        backgroundColor = { 50, 40, 70, 180 },
-        borderWidth = 1, borderColor = { 160, 120, 220, 80 },
-        gap = 6,
-        children = {
-            UI.Panel {
-                width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                children = {
-                    UI.Label { text = "🎮 免费小游戏", fontSize = 15, fontWeight = "bold", fontColor = { 180, 150, 255, 240 } },
-                    UI.Label { text = "剩余 " .. freePlays .. " 次", fontSize = 12, fontColor = { 200, 200, 255, 200 } },
-                },
-            },
-            UI.Label { text = "不消耗行动点！赢了获得50%奖励" .. (streakText ~= "" and (" · " .. streakText) or ""), fontSize = 12, fontColor = C.textLight, whiteSpace = "normal", width = "100%" },
-            UI.Button {
-                text = "🎲 开始免费训练", fontSize = 14, height = 40, width = "100%",
-                variant = "primary",
-                onClick = function()
-                    if #teamMembers_ == 0 then
-                        AddLog("⚠️ 需要至少1名队员才能训练！")
-                        BuildUI()
-                        return
-                    end
-                    if RV2.UseFreeMiniGamePlay() then
-                        AddLog("🎮 开始免费训练！（不消耗行动点）")
-                        playerData_.freeTrainMode = true
-                        trainMember_ = teamMembers_[1]
-                        trainMemberIdx_ = 1
-                        trainPhase_ = "ready"
-                        trainActive_ = false
-                        trainMode_ = "select"
-                        currentPhase_ = PHASE_TRAIN
-                        PlayBGM("train")
-                        BuildUI()
-                    end
-                end,
-            },
-        },
-    }
-end
-
--- ── 独立面板：团队羁绊（原RV2方案11，移至团队Tab） ──
-local function BuildTeamBondPanel()
-    if not RV2 or #teamMembers_ < 2 then return nil end
-    local bonds = RV2.GetActiveBonds()
-    if #bonds == 0 then return nil end
-    local bondItems = {}
-    for _, ab in ipairs(bonds) do
-        table.insert(bondItems, UI.Panel {
-            width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
-            padding = 6, borderRadius = 6,
-            backgroundColor = { 60, 50, 50, 100 },
-            children = {
-                UI.Label { text = ab.member1.emoji .. "+" .. ab.member2.emoji, fontSize = 14, width = 50 },
-                UI.Panel {
-                    flex = 1, gap = 2,
-                    children = {
-                        UI.Label { text = ab.bond.name, fontSize = 13, fontWeight = "bold", fontColor = { 255, 180, 180, 240 } },
-                        UI.Label { text = ab.member1.name .. " & " .. ab.member2.name .. " → " .. ab.bond.effectDesc, fontSize = 11, fontColor = C.textLight },
-                    },
-                },
-            },
-        })
-    end
-    return UI.Panel {
-        width = "100%", padding = 10, borderRadius = 10,
-        backgroundColor = { 50, 35, 40, 180 },
-        borderWidth = 1, borderColor = { 200, 120, 120, 80 },
-        gap = 6,
-        children = {
-            UI.Label { text = "💞 团队羁绊", fontSize = 15, fontWeight = "bold", fontColor = { 255, 160, 180, 240 }, width = "100%" },
-            table.unpack(bondItems),
-        },
-    }
-end
 
 function BuildManageTabContent()
     -- 每次构建 UI 前验证数据完整性
@@ -705,9 +697,9 @@ function BuildManageTabContent()
         -- 政变期间顶部显示醒目警告横幅
         if IsCoupActive() then
             table.insert(actionChildren, UI.Panel {
-                width = "100%", padding = 10, borderRadius = 10,
+                width = "100%", padding = 10, borderRadius = PX.radius,
                 backgroundColor = { 200, 85, 60, 220 },
-                borderWidth = 2, borderColor = { 255, 60, 60, 150 },
+                borderWidth = PX.border, borderColor = { 255, 60, 60, 150 },
                 gap = 4,
                 children = {
                     UI.Label { text = "军事政变进行中！", fontSize = 16, fontColor = { 255, 80, 80, 255 }, fontWeight = "bold", textAlign = "center", width = "100%" },
@@ -719,9 +711,32 @@ function BuildManageTabContent()
                 },
             })
         end
+        -- P0: 今日顾问建议（跨模块信号引导）
+        local advisorTip = nil
+        local okAdv, tip = pcall(GetDailyAdvisorTip)
+        if okAdv and tip then
+            advisorTip = UI.Panel {
+                width = "100%", flexDirection = "row", alignItems = "center",
+                padding = 8, gap = 8, borderRadius = PX.radius,
+                backgroundColor = { 60, 80, 60, 200 },
+                borderWidth = 1, borderColor = { 100, 160, 80, 120 },
+                children = {
+                    UI.Label { text = tip.icon or "💡", fontSize = 16 },
+                    UI.Panel { flex = 1, gap = 1, children = {
+                        UI.Label { text = tip.text or "", fontSize = 12, fontColor = C.text, fontWeight = "bold" },
+                        UI.Label { text = tip.hint or "", fontSize = 11, fontColor = C.textDim },
+                    }},
+                    UI.Label { text = "顾问", fontSize = 10, fontColor = { 140, 180, 120, 180 } },
+                },
+            }
+        end
+        if advisorTip then table.insert(actionChildren, advisorTip) end
+
         table.insert(actionChildren, SafeBuild("ActionCard", BuildActionCard))
         local sponsorPanel = SafeBuild("SponsorCenter", BuildSponsorCenter)
         if sponsorPanel then table.insert(actionChildren, sponsorPanel) end
+        local linkagePanel = SafeBuild("LinkageCard", BuildLinkageCard)
+        if linkagePanel then table.insert(actionChildren, linkagePanel) end
 
         -- 留存系统：目标链进度卡片 + 周期性大事件指示器
         local retentionPanel = SafeBuild("RetentionCards", function()
@@ -751,7 +766,7 @@ function BuildManageTabContent()
                             if #parts > 0 then rewardText = "奖励: " .. table.concat(parts, " ") end
                         end
                         table.insert(goalItems, UI.Panel {
-                            width = "100%", padding = 8, borderRadius = 8,
+                            width = "100%", padding = 8, borderRadius = PX.radius,
                             backgroundColor = barColor, gap = 3,
                             children = {
                                 UI.Panel {
@@ -764,11 +779,11 @@ function BuildManageTabContent()
                                 UI.Label { text = g.goalDesc, fontSize = 12, fontColor = { 255, 255, 255, 200 }, whiteSpace = "normal", width = "100%" },
                                 -- 进度条
                                 UI.Panel {
-                                    width = "100%", height = 4, borderRadius = 2,
+                                    width = "100%", height = 4, borderRadius = PX.radiusSm,
                                     backgroundColor = { 0, 0, 0, 60 },
                                     children = {
                                         UI.Panel {
-                                            width = math.floor(pct * 100) .. "%", height = 4, borderRadius = 2,
+                                            width = math.floor(pct * 100) .. "%", height = 4, borderRadius = PX.radiusSm,
                                             backgroundColor = g.done and { 100, 220, 100, 220 } or { 255, 220, 100, 220 },
                                         },
                                     },
@@ -778,9 +793,9 @@ function BuildManageTabContent()
                         })
                     end
                     table.insert(cards, UI.Panel {
-                        width = "100%", padding = 10, borderRadius = 10,
+                        width = "100%", padding = 10, borderRadius = PX.radius,
                         backgroundColor = { 40, 40, 60, 180 },
-                        borderWidth = 1, borderColor = { 255, 220, 100, 60 },
+                        borderWidth = PX.border, borderColor = { 255, 220, 100, 60 },
                         gap = 6,
                         children = {
                             UI.Label { text = "🎯 目标挑战", fontSize = 15, fontWeight = "bold", fontColor = { 255, 220, 100, 240 }, width = "100%" },
@@ -790,15 +805,92 @@ function BuildManageTabContent()
                 end
             end
 
+            -- P2-B 精英目标卡（3条目标链全部完成后显示）
+            if Retention and Retention.GetCurrentEliteGoal then
+                local elite = Retention.GetCurrentEliteGoal()
+                if elite then
+                    local eliteCard
+                    if elite.done then
+                        -- 全部完成态
+                        eliteCard = UI.Panel {
+                            width = "100%", padding = 10, borderRadius = PX.radius,
+                            backgroundColor = { 50, 35, 80, 200 },
+                            borderWidth = PX.border, borderColor = { 200, 150, 255, 120 },
+                            flexDirection = "row", alignItems = "center", gap = 10,
+                            children = {
+                                UI.Label { text = "🌐", fontSize = 26, flexShrink = 0 },
+                                UI.Panel { flex = 1, gap = 2, children = {
+                                    UI.Label { text = "传奇已成", fontSize = 14, fontWeight = "bold",
+                                        fontColor = { 220, 180, 255, 255 } },
+                                    UI.Label { text = elite.desc, fontSize = 12,
+                                        fontColor = { 180, 160, 220, 200 }, whiteSpace = "normal" },
+                                }},
+                            },
+                        }
+                    else
+                        -- 进行中精英目标
+                        local rewardParts = {}
+                        if elite.reward then
+                            if (elite.reward.money or 0) > 0 then table.insert(rewardParts, "$" .. elite.reward.money) end
+                            if (elite.reward.rep or 0) > 0 then table.insert(rewardParts, "+" .. elite.reward.rep .. "声望") end
+                        end
+                        local rewardStr = #rewardParts > 0 and ("奖励: " .. table.concat(rewardParts, " · ")) or ""
+                        eliteCard = UI.Panel {
+                            width = "100%", padding = 10, borderRadius = PX.radius,
+                            backgroundColor = { 45, 30, 70, 200 },
+                            borderWidth = PX.border, borderColor = { 180, 120, 255, 140 },
+                            gap = 6,
+                            children = {
+                                -- 标题行
+                                UI.Panel {
+                                    width = "100%", flexDirection = "row",
+                                    alignItems = "center", justifyContent = "space-between",
+                                    children = {
+                                        UI.Panel { flexDirection = "row", alignItems = "center", gap = 6, children = {
+                                            UI.Label { text = "🌟", fontSize = 14 },
+                                            UI.Label { text = "精英目标 · " .. elite.idx .. "/" .. elite.total,
+                                                fontSize = 13, fontWeight = "bold",
+                                                fontColor = { 220, 180, 255, 255 } },
+                                        }},
+                                        UI.Panel {
+                                            paddingHorizontal = 6, paddingVertical = 2,
+                                            backgroundColor = { 120, 60, 200, 140 }, borderRadius = 8,
+                                            children = {
+                                                UI.Label { text = "挑战", fontSize = 10,
+                                                    fontColor = { 230, 200, 255, 255 } },
+                                            },
+                                        },
+                                    },
+                                },
+                                -- 目标图标+标题
+                                UI.Panel { flexDirection = "row", alignItems = "center", gap = 8, children = {
+                                    UI.Label { text = elite.icon, fontSize = 22, flexShrink = 0 },
+                                    UI.Panel { flex = 1, gap = 2, children = {
+                                        UI.Label { text = elite.title, fontSize = 15, fontWeight = "bold",
+                                            fontColor = { 255, 240, 200, 255 } },
+                                        UI.Label { text = elite.desc, fontSize = 12,
+                                            fontColor = { 200, 185, 235, 220 }, whiteSpace = "normal" },
+                                    }},
+                                }},
+                                -- 奖励
+                                rewardStr ~= "" and UI.Label { text = rewardStr, fontSize = 11,
+                                    fontColor = { 255, 215, 100, 200 } } or nil,
+                            },
+                        }
+                    end
+                    if eliteCard then table.insert(cards, eliteCard) end
+                end
+            end
+
             -- 周期性大事件指示器
             if Retention then
                 local active = Retention.GetActivePeriodicEvent and Retention.GetActivePeriodicEvent()
                 if active then
                     -- 活跃的周期事件
                     table.insert(cards, UI.Panel {
-                        width = "100%", padding = 10, borderRadius = 10,
+                        width = "100%", padding = 10, borderRadius = PX.radius,
                         backgroundColor = { 180, 60, 60, 140 },
-                        borderWidth = 1, borderColor = { 255, 100, 100, 100 },
+                        borderWidth = PX.border, borderColor = { 255, 100, 100, 100 },
                         gap = 4,
                         children = {
                             UI.Label { text = "⚡ " .. (active.name or "特殊事件") .. " 进行中", fontSize = 14, fontWeight = "bold", fontColor = { 255, 180, 100, 255 }, width = "100%" },
@@ -811,7 +903,7 @@ function BuildManageTabContent()
                     local nextEvent = Retention.GetNextPeriodicEvent and Retention.GetNextPeriodicEvent(playerData_.day)
                     if nextEvent then
                         table.insert(cards, UI.Panel {
-                            width = "100%", padding = 8, borderRadius = 8,
+                            width = "100%", padding = 8, borderRadius = PX.radius,
                             backgroundColor = { 60, 60, 80, 120 },
                             flexDirection = "row", alignItems = "center", gap = 8,
                             children = {
@@ -842,9 +934,9 @@ function BuildManageTabContent()
             if RV2 and RV2.IsGoldenHour() then
                 local left = (playerData_.goldenHourMaxActions or 3) - (playerData_.goldenHourActions or 0)
                 table.insert(rv2Cards, UI.Panel {
-                    width = "100%", padding = 10, borderRadius = 10,
+                    width = "100%", padding = 10, borderRadius = PX.radius,
                     backgroundColor = { 200, 170, 40, 180 },
-                    borderWidth = 2, borderColor = { 255, 215, 0, 200 },
+                    borderWidth = PX.border, borderColor = { 255, 215, 0, 200 },
                     gap = 4,
                     children = {
                         UI.Label { text = "🌟 黄金时段！", fontSize = 16, fontWeight = "bold", fontColor = { 255, 255, 220, 255 }, width = "100%" },
@@ -865,14 +957,18 @@ function BuildManageTabContent()
                                 text = ch.text, fontSize = 12, height = 36, flex = 1,
                                 backgroundColor = { 70, 130, 90, 200 },
                                 onClick = function()
-                                    local result = RV2.ResolveMicroEvent(me.id, ci)
-                                    AddLog("📋 " .. me.title .. ": " .. result)
+                                    local resolveOk, result = pcall(RV2.ResolveMicroEvent, me.id, ci)
+                                    if not resolveOk then
+                                        log:Write(LOG_ERROR, "[UIManage] ResolveMicroEvent error: " .. tostring(result))
+                                        result = "处理失败"
+                                    end
+                                    AddLog("📋 " .. (me.title or "事件") .. ": " .. tostring(result or ""))
                                     BuildUI()
                                 end,
                             })
                         end
                         table.insert(evtItems, UI.Panel {
-                            width = "100%", padding = 8, borderRadius = 8,
+                            width = "100%", padding = 8, borderRadius = PX.radius,
                             backgroundColor = { 50, 60, 70, 150 }, gap = 4,
                             children = {
                                 UI.Label { text = me.title, fontSize = 14, fontWeight = "bold", fontColor = C.text, width = "100%" },
@@ -882,9 +978,9 @@ function BuildManageTabContent()
                         })
                     end
                     table.insert(rv2Cards, UI.Panel {
-                        width = "100%", padding = 10, borderRadius = 10,
+                        width = "100%", padding = 10, borderRadius = PX.radius,
                         backgroundColor = { 40, 50, 60, 180 },
-                        borderWidth = 1, borderColor = { 100, 180, 130, 80 },
+                        borderWidth = PX.border, borderColor = { 100, 180, 130, 80 },
                         gap = 6,
                         children = {
                             UI.Label { text = "☕ 网吧日常（免费互动）", fontSize = 15, fontWeight = "bold", fontColor = { 130, 220, 160, 240 }, width = "100%" },
@@ -898,9 +994,9 @@ function BuildManageTabContent()
             if RV2 and playerData_.actionPoints <= 0 and RV2.CanAdRecoverAP() then
                 local usedCount = playerData_.adAPRecoverToday or 0
                 table.insert(rv2Cards, UI.Panel {
-                    width = "100%", padding = 10, borderRadius = 10,
+                    width = "100%", padding = 10, borderRadius = PX.radius,
                     backgroundColor = { 60, 50, 40, 180 },
-                    borderWidth = 1, borderColor = { 200, 160, 60, 80 },
+                    borderWidth = PX.border, borderColor = { 200, 160, 60, 80 },
                     gap = 4,
                     children = {
                         UI.Label { text = "⚡ 行动点不足？", fontSize = 14, fontWeight = "bold", fontColor = { 255, 200, 100, 240 }, width = "100%" },
@@ -922,9 +1018,134 @@ function BuildManageTabContent()
         end)
         if rv2Panel then table.insert(actionChildren, rv2Panel) end
 
+        -- Batch 3: 装饰面板入口（章节解锁 decoration_slots 后显示）
+        local okCS, ChapterSys = pcall(require, "ChapterSystem")
+        local decoUnlocked = okCS and ChapterSys and ChapterSys.IsUnlocked and ChapterSys.IsUnlocked("decoration_slots")
+        if decoUnlocked then
+            local decoPanel = SafeBuild("DecorationPanel", function()
+                local okD, UIDeco = pcall(require, "UIDecoration")
+                if okD and UIDeco then
+                    -- UIDecoration 导出的是文件顶层，BuildDecorationPanel 是全局函数
+                    return BuildDecorationPanel()
+                end
+                return nil
+            end)
+            if decoPanel then table.insert(actionChildren, decoPanel) end
+        end
+
+        -- 网吧装修入口（章节2+或装饰Lv1+）
+        local customizeBtn = SafeBuild("CafeCustomizeBtn", function()
+            local okCust, _ = pcall(require, "UICafeCustomize")
+            if okCust and BuildCafeCustomizeButton then
+                return BuildCafeCustomizeButton()
+            end
+            return nil
+        end)
+        if customizeBtn then table.insert(actionChildren, customizeBtn) end
+
+        -- P1-4: 7城征途地图胶囊（chapter>=2 时显示，让玩家感知大目标）
+        if currentChapter_ >= 2 or (playerData_.unlockedCities and #playerData_.unlockedCities > 1) then
+            local roadmapPanel = SafeBuild("RoadmapCapsule", BuildRoadmapCapsule)
+            if roadmapPanel then table.insert(actionChildren, roadmapPanel) end
+        end
+
         local branchPanel = SafeBuild("BranchSelector", BuildBranchSelector)
         if branchPanel then table.insert(actionChildren, branchPanel) end
         table.insert(actionChildren, SafeBuild("DiaryInline", BuildDiaryPage))
+
+        -- P0+P3: 转生预览窗（城市解锁进度 + 当前增益预览）
+        local prestigePreview = nil
+        local okPS, PS2 = pcall(require, "PrestigeSystem")
+        if okPS and PS2 and PS2.CITIES then
+            local current = playerData_.prestigeHonor or 0
+            local nextCity = nil
+            for _, city in ipairs(PS2.CITIES) do
+                if city.prestigeReq > current then nextCity = city; break end
+            end
+            if nextCity then
+                -- 碎片减免检查
+                local effectiveReq = nextCity.prestigeReq
+                local hasFragment = false
+                if PS2.GetEffectivePrestigeReq then
+                    effectiveReq, hasFragment = PS2.GetEffectivePrestigeReq(nextCity)
+                end
+                local pct = math.min(100, math.floor(current / effectiveReq * 100))
+                local barW = math.max(5, pct)
+                -- 当前可获得名誉预览
+                local gainPreview = ""
+                if PS2.CalcPrestigeGain then
+                    local gain = PS2.CalcPrestigeGain()
+                    if gain > 0 then
+                        gainPreview = "转生可获 +" .. gain .. " 名誉"
+                    end
+                end
+                -- 提示怎么获取名誉
+                local hintParts = {}
+                if #(playerData_.branches or {}) < 2 then table.insert(hintParts, "开分店+15") end
+                table.insert(hintParts, "赢锦标赛+25")
+                if (playerData_.day or 1) >= 10 then table.insert(hintParts, "经营天数+名誉") end
+                local hintStr = table.concat(hintParts, " | ")
+                -- 进度条颜色：接近满时用金色
+                local barColor = pct >= 80 and { 255, 200, 50, 240 } or { 100, 160, 255, 220 }
+                local previewChildren = {
+                    UI.Panel { flexDirection = "row", alignItems = "center", gap = 6, width = "100%", children = {
+                        UI.Label { text = "🌍", fontSize = 14 },
+                        UI.Label { text = "下一站：" .. nextCity.emoji .. " " .. nextCity.name, fontSize = 12, fontColor = { 180, 210, 255, 255 }, fontWeight = "bold", flex = 1 },
+                        UI.Label { text = current .. "/" .. effectiveReq .. " 名誉", fontSize = 11, fontColor = C.textDim },
+                    }},
+                    -- 进度条
+                    UI.Panel { width = "100%", height = 6, borderRadius = 3, backgroundColor = { 30, 40, 55, 255 }, children = {
+                        UI.Panel { width = barW .. "%", height = "100%", borderRadius = 3, backgroundColor = barColor },
+                    }},
+                }
+                -- 碎片减免标记
+                if hasFragment then
+                    table.insert(previewChildren, UI.Label {
+                        text = "🗺️ 城市碎片已激活 — 门槛降低！",
+                        fontSize = 10, fontColor = { 120, 230, 180, 220 },
+                    })
+                end
+                -- 转生可获名誉
+                if gainPreview ~= "" then
+                    table.insert(previewChildren, UI.Label {
+                        text = "⭐ " .. gainPreview,
+                        fontSize = 10, fontColor = { 255, 210, 100, 200 },
+                    })
+                end
+                -- 城市特殊加成
+                if nextCity.specialBonus then
+                    table.insert(previewChildren, UI.Label {
+                        text = "✨ 城市加成：" .. nextCity.specialBonus,
+                        fontSize = 10, fontColor = { 170, 200, 240, 180 },
+                    })
+                end
+                table.insert(previewChildren, UI.Label { text = "💡 " .. hintStr, fontSize = 10, fontColor = { 140, 170, 200, 180 } })
+                prestigePreview = UI.Panel {
+                    width = "100%", padding = 10, borderRadius = PX.radius,
+                    backgroundColor = { 40, 50, 70, 200 },
+                    borderWidth = 1, borderColor = pct >= 80 and { 200, 170, 50, 160 } or { 80, 120, 180, 120 },
+                    gap = 5,
+                    children = previewChildren,
+                }
+            else
+                -- 全部城市已解锁 → 显示传奇状态
+                local count = PS2.GetPrestigeCount and PS2.GetPrestigeCount() or 0
+                if count > 0 then
+                    prestigePreview = UI.Panel {
+                        width = "100%", padding = 10, borderRadius = PX.radius,
+                        backgroundColor = { 50, 40, 20, 200 },
+                        borderWidth = 1, borderColor = { 200, 170, 50, 160 },
+                        gap = 4, alignItems = "center",
+                        children = {
+                            UI.Label { text = "👑 传奇之路完成", fontSize = 13, fontColor = { 255, 215, 0, 255 }, fontWeight = "bold" },
+                            UI.Label { text = "转生 " .. count .. " 次 | 名誉 " .. current, fontSize = 11, fontColor = { 200, 180, 120, 200 } },
+                        },
+                    }
+                end
+            end
+        end
+        if prestigePreview then table.insert(actionChildren, prestigePreview) end
+
         return UI.Panel {
             width = "100%", gap = 12,
             children = actionChildren,
@@ -932,7 +1153,10 @@ function BuildManageTabContent()
     elseif manageTab_ == "upgrade" then
         local upgradeChildren = {
             SafeBuild("UpgradeCard", BuildUpgradeCard),
+            SafeBuild("AELSponsor", BuildAELSponsorPanel),
+            SafeBuild("CoachPanel", BuildCoachPanel),
             SafeBuild("AchievementCard", BuildAchievementCard),
+            SafeBuild("MailboxCard", BuildMailboxCard),
             SafeBuild("SeasonPass", BuildSeasonPassPanel),
         }
         return UI.Panel {
@@ -944,13 +1168,18 @@ function BuildManageTabContent()
             SafeBuild("TeamCard", BuildTeamCard),
             SafeBuild("FreeMiniGame", BuildFreeMiniGamePanel),
             SafeBuild("TeamBond", BuildTeamBondPanel),
+            SafeBuild("PeoplePage", BuildPeoplePage),
         }
         return UI.Panel {
             width = "100%", gap = 8,
             children = teamChildren,
         }
+    elseif manageTab_ == "automation" then
+        return SafeBuild("AutomationPanel", BuildAutomationPanel)
     elseif manageTab_ == "market" then
         return SafeBuild("MarketPage", BuildMarketUI)
+    elseif manageTab_ == "collection" then
+        return SafeBuild("CollectionPage", UICollection.BuildCollectionPage)
     else -- "ranking"
         return UI.Panel {
             width = "100%", gap = 8,
@@ -982,22 +1211,48 @@ function GetCafeSceneImage()
             return SCENE_IMAGES[imgKey]
         end
     end
-    -- 3. 根据客流比例选择
+    -- 3. 特殊日期场景（锦标赛日、烧烤日等）
+    if matchInProgress_ then
+        return SCENE_IMAGES.cafe_tournament or SCENE_IMAGES.cafe_busy
+    end
+    if streamingActive_ then
+        return SCENE_IMAGES.cafe_streaming or SCENE_IMAGES.cafe_busy
+    end
+    -- 4. 根据客流比例 + 周末修正
     local traffic = RefreshTraffic()
     local capacity = CalcCafeCapacity()
     local ratio = capacity > 0 and (traffic / capacity) or 0
+    -- 周末时客流显得更热闹
+    local weekday = ((playerData_.day - 1) % 7) + 1
+    if weekday >= 6 then ratio = ratio * 1.15 end
+    -- 夜间时段检测（真实世界时间，深夜玩家看到包夜场景引发共鸣）
+    local hour = os.date("*t").hour
+    local isNight = hour >= 22 or hour < 6
+    local isOvernight = hour >= 1 and hour < 5
+
     if ratio <= 0.1 then
         return SCENE_IMAGES.cafe_empty
     elseif ratio <= 0.4 then
-        return SCENE_IMAGES.cafe_few
+        if isOvernight then return SCENE_IMAGES.cafe_overnight end
+        return isNight and SCENE_IMAGES.cafe_few_night or SCENE_IMAGES.cafe_few
     elseif ratio <= 0.8 then
-        return SCENE_IMAGES.cafe_normal
+        if isOvernight then return SCENE_IMAGES.cafe_overnight end
+        return isNight and SCENE_IMAGES.cafe_normal_night or SCENE_IMAGES.cafe_normal
     else
-        return SCENE_IMAGES.cafe_busy
+        if isOvernight then return SCENE_IMAGES.cafe_overnight end
+        return isNight and SCENE_IMAGES.cafe_busy_night or SCENE_IMAGES.cafe_busy
     end
 end
 
 function BuildManageUI()
+    -- 安全回退：如果当前Tab尚未解锁，回退到"action"
+    if manageTab_ ~= "action" then
+        local unlockKey = "tab_" .. manageTab_
+        if not ProgressiveUnlock.IsUnlocked(unlockKey) then
+            manageTab_ = "action"
+        end
+    end
+
     -- 根据当前章节选择管理背景
     local bgImg = CHAPTER_IMAGES[currentChapter_] or SCENE_IMAGES.ch2
 
@@ -1008,1898 +1263,713 @@ function BuildManageUI()
         statusBar = UI.Label { text = "⚠️ 状态栏加载失败", fontSize = 14, fontColor = { 255, 100, 100, 255 } }
     end
 
-    local ok2, atmosphere = pcall(GetAtmosphere)
-    local atmosText = ok2 and atmosphere or "..."
-
-    -- 根据经营状态选择对应的网吧场景图
-    local cafeImg = GetCafeSceneImage()
-
-    local ok3, tabBar = pcall(BuildManageTabBar)
-    if not ok3 then
-        log:Write(LOG_ERROR, "[BuildManageUI] BuildManageTabBar error: " .. tostring(tabBar))
-        tabBar = UI.Panel {}
+    -- 底部导航栏（替代旧 tabBar）
+    local ok5, bottomNav = pcall(BuildBottomNavBar)
+    if not ok5 then
+        log:Write(LOG_ERROR, "[BuildManageUI] BuildBottomNavBar error: " .. tostring(bottomNav))
+        bottomNav = UI.Panel { width = "100%", height = 56 }
     end
 
+    -- ── 经营Tab：全景 + 广告条 + 完整行动面板 ──
+    if manageTab_ == "action" then
+        -- BuildPanoramaSection 的渲染元素现在直接内联到全景图 Panel 中
+        -- 广告条带已移除，广告分散到各位置：翻倍收入→日结弹窗 / 额外AP→状态栏内联 / 赞助福利→行动网格
+
+        -- 使用完整行动面板（保留所有原始内容）
+        local ok7, actionCard = pcall(BuildActionCard)
+        if not ok7 then
+            log:Write(LOG_ERROR, "[BuildManageUI] BuildActionCard error: " .. tostring(actionCard))
+            actionCard = UI.Label { text = "⚠️ 行动面板加载失败: " .. tostring(actionCard),
+                fontSize = 13, fontColor = { 255, 100, 100, 255 }, whiteSpace = "normal", width = "90%" }
+        end
+
+        -- 网吧实况弹窗覆盖（点击全景图徽章时显示，不消耗AP）
+        local cafePopup = nil
+        if cafePopupOpen_ then
+            local okCafe, cafeContent = pcall(BuildCafeInlinePanel)
+            if not okCafe then
+                log:Write(LOG_ERROR, "[BuildManageUI] BuildCafeInlinePanel error: " .. tostring(cafeContent))
+                cafeContent = UI.Label { text = "加载失败", fontSize = 14, fontColor = C.red }
+            end
+            cafePopup = UI.Panel {
+                position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+                backgroundColor = { 0, 0, 0, 160 },
+                justifyContent = "center", alignItems = "center",
+                paddingHorizontal = 16, paddingVertical = 40,
+                onClick = function()
+                    cafePopupOpen_ = false
+                    PlaySFX("click")
+                    BuildUI()
+                end,
+                children = {
+                    UI.Panel {
+                        width = "100%", maxHeight = "80%",
+                        backgroundColor = C.card, borderRadius = PX.cardRadius,
+                        borderWidth = PX.border, borderColor = C.border,
+                        padding = 12, gap = 8,
+                        onClick = function() end, -- 阻止点击穿透关闭
+                        children = {
+                            -- 标题栏
+                            UI.Panel {
+                                width = "100%", flexDirection = "row",
+                                justifyContent = "space-between", alignItems = "center",
+                                children = {
+                                    UI.Label { text = "网吧实况", fontSize = 16, fontWeight = "bold", fontColor = C.gold },
+                                    UI.Panel {
+                                        paddingHorizontal = 10, paddingVertical = 4,
+                                        backgroundColor = { C.border[1], C.border[2], C.border[3], 80 },
+                                        borderRadius = PX.radius,
+                                        onClick = function()
+                                            cafePopupOpen_ = false
+                                            PlaySFX("click")
+                                            BuildUI()
+                                        end,
+                                        children = {
+                                            UI.Label { text = "关闭", fontSize = 13, fontColor = C.text },
+                                        },
+                                    },
+                                },
+                            },
+                            -- 内容区（可滚动）
+                            UI.ScrollView {
+                                id = "cafe-popup-scroll",
+                                width = "100%", flex = 1, flexBasis = 0,
+                                children = { cafeContent },
+                            },
+                        },
+                    },
+                },
+            }
+        end
+
+        -- 今日经营策略卡（Day 4+ 显示，全景图/广告条下方）
+        local stratCard = nil
+        if ProgressiveUnlock.IsUnlocked("strategy_card") then
+            local ok9, stratCard_ = pcall(BuildStrategyCard)
+            if not ok9 then
+                log:Write(LOG_ERROR, "[BuildManageUI] BuildStrategyCard error: " .. tostring(stratCard_))
+            else
+                stratCard = stratCard_
+            end
+        end
+
+        -- ══════════════════════════════════════════════════════
+        -- 新布局：固定一屏，不再整体滚动
+        -- 结构：[StatusBar][全景图(压缩)][事件条][结束当天按钮][操作区ScrollView][BottomNav]
+        -- ══════════════════════════════════════════════════════
+
+        -- 从 actionCard 中提取结束当天按钮（固定在操作区上方）
+        local ap = playerData_.actionPoints or 3
+        local noAP = ap <= 0
+        local endBotColor = noAP and { 20, 90, 38, 255 } or { 90, 58, 10, 255 }
+        local endBgColor  = noAP and { 45, 158, 72, 255 } or { 170, 115, 28, 255 }
+        local endBorderHi = noAP and { 100, 220, 130, 200 } or { 230, 185, 75, 200 }
+        local endMainText = noAP and "✅ 结束今天" or ("结束今天  (第" .. playerData_.day .. "天)")
+        local fixedEndDayBtn = UI.Panel {
+            width = "100%", paddingHorizontal = 10, paddingVertical = 2,
+            children = {
+                UI.Panel {
+                    width = "100%", height = 34, borderRadius = 8,
+                    backgroundColor = endBgColor,
+                    borderWidth = 1.5, borderColor = endBorderHi,
+                    flexDirection = "row", justifyContent = "center", alignItems = "center",
+                    gap = 6,
+                    onClick = function()
+                        if transition_.active then return end
+                        PlaySFX("click")
+                        -- 翻倍收入广告：点击EndDay时弹窗询问
+                        if AdManager.CanWatch("double_income", playerData_.day) then
+                            showEndDayAdPopup_ = true
+                            BuildUI()
+                            return
+                        end
+                        local ok, err = pcall(EndDay)
+                        if not ok then
+                            log:Write(LOG_ERROR, "[EndDay] crashed: " .. tostring(err))
+                            currentPhase_ = PHASE_MANAGE
+                            pcall(BuildUI)
+                        end
+                    end,
+                    children = {
+                        UI.Label { text = endMainText,
+                            fontSize = 13, fontWeight = "bold",
+                            fontColor = { 245, 255, 245, 255 } },
+                        noAP and UI.Label { text = "· 进入明天",
+                            fontSize = 10, fontColor = { 205, 248, 215, 180 } } or nil,
+                    },
+                },
+            },
+        }
+
+        -- 事件摘要横条（合并特殊事件+竞对为1行横向紧凑展示）
+        local eventChips = {}
+        if dailySpecialEvent_ and dailySpecialEvent_.title then
+            table.insert(eventChips, UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 3,
+                paddingHorizontal = 8, paddingVertical = 4,
+                backgroundColor = { 60, 60, 90, 140 }, borderRadius = 12,
+                borderWidth = 1, borderColor = { 120, 120, 200, 100 },
+                children = {
+                    UI.Label { text = dailySpecialEvent_.icon or "⚡", fontSize = 11 },
+                    UI.Label { text = dailySpecialEvent_.title, fontSize = 10, fontWeight = "bold",
+                        fontColor = { 220, 240, 180, 240 } },
+                    dailySpecialEvent_.bonus and UI.Label {
+                        text = "+" .. dailySpecialEvent_.bonus,
+                        fontSize = 9, fontColor = { 100, 220, 130, 255 } } or nil,
+                },
+            })
+        end
+        if rivalNpcs_ and #rivalNpcs_ > 0 then
+            local topRival = rivalNpcs_[1]
+            local steal = topRival.stealPct or 10
+            local rivalChipBg = topRival.threat == "high" and { 120, 40, 40, 160 }
+                or topRival.threat == "mid" and { 100, 70, 30, 140 }
+                or { 60, 60, 60, 120 }
+            table.insert(eventChips, UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 3,
+                paddingHorizontal = 8, paddingVertical = 4,
+                backgroundColor = rivalChipBg, borderRadius = 12,
+                borderWidth = 1, borderColor = { 200, 100, 80, 100 },
+                children = {
+                    UI.Label { text = "🏪", fontSize = 10 },
+                    UI.Label { text = topRival.name .. " -" .. steal .. "%",
+                        fontSize = 10, fontColor = { 255, 180, 150, 230 } },
+                    topRival.threat == "high" and UI.Label { text = "⚠️", fontSize = 9 } or nil,
+                },
+            })
+        end
+        local eventBar = #eventChips > 0 and UI.Panel {
+            width = "100%", paddingHorizontal = 10, paddingVertical = 2,
+            flexDirection = "row", flexWrap = "wrap", gap = 6, alignItems = "center",
+            children = eventChips,
+        } or nil
+
+        -- [重构] quickBar 已移除，stratCard 直接条件插入
+
+        -- ══════════════════════════════════════════════════════
+        -- [v3 布局] 参照现代游戏设计：大场景 + 紧凑操作 + 5Tab导航
+        -- 结构：[顶部状态栏36px][大全景flex][目标+主按钮][操作网格][5Tab底栏60px]
+        -- ══════════════════════════════════════════════════════
+        local actionChildren = {}
+
+        -- ── 1) 顶部状态栏（紧凑深色横条，参照参考图） ──
+        local topBarItems = {}
+        -- 左：Day · 时间
+        local dayText = "第" .. playerData_.day .. "天"
+        table.insert(topBarItems, UI.Panel {
+            flexDirection = "row", alignItems = "center", gap = 4,
+            paddingHorizontal = 8, paddingVertical = 4,
+            backgroundColor = { 20, 60, 100, 200 }, borderRadius = 10,
+            children = {
+                UI.Label { text = "📅", fontSize = 10 },
+                UI.Label { text = dayText, fontSize = 11, fontWeight = "bold", fontColor = { 255, 255, 255, 255 } },
+            },
+        })
+        -- 中：金币
+        table.insert(topBarItems, UI.Panel {
+            flexDirection = "row", alignItems = "center", gap = 4,
+            paddingHorizontal = 8, paddingVertical = 4,
+            backgroundColor = { 20, 60, 100, 200 }, borderRadius = 10,
+            children = {
+                UI.Label { text = "💰", fontSize = 10 },
+                UI.Label { text = FormatMoney(playerData_.money), fontSize = 12, fontWeight = "bold",
+                    fontColor = { 255, 220, 80, 255 } },
+            },
+        })
+        -- 右：AP + 天气
+        local apVal2 = playerData_.actionPoints or 3
+        local apMax2 = playerData_.maxAP or 3
+        local apCol2 = apVal2 > 0 and { 100, 255, 150, 255 } or { 255, 100, 80, 255 }
+        local wLabel2, wColor2 = GetWeatherLabel()
+        local apChildren = {
+            UI.Label { text = "⚡", fontSize = 10 },
+            UI.Label { text = apVal2 .. "/" .. apMax2, fontSize = 11, fontWeight = "bold", fontColor = apCol2 },
+        }
+        -- AP=0 时内联广告恢复
+        if apVal2 <= 0 and AdManager.CanWatch("extra_ap", playerData_.day) then
+            table.insert(apChildren, UI.Panel {
+                paddingHorizontal = 4, paddingVertical = 1,
+                backgroundColor = { 200, 140, 40, 200 }, borderRadius = 6,
+                onClick = function()
+                    AdManager.ShowAd("extra_ap", playerData_.day, function()
+                        playerData_.actionPoints = playerData_.actionPoints + 1
+                        AddLog("🎬 赞助商的能量饮料让你恢复了精力！行动点+1")
+                        BuildUI()
+                    end)
+                end,
+                children = { UI.Label { text = "+1", fontSize = 8, fontWeight = "bold", fontColor = { 255, 255, 255, 255 } } },
+            })
+        end
+        table.insert(topBarItems, UI.Panel {
+            flexDirection = "row", alignItems = "center", gap = 4,
+            paddingHorizontal = 8, paddingVertical = 4,
+            backgroundColor = { 20, 60, 100, 200 }, borderRadius = 10,
+            children = apChildren,
+        })
+        table.insert(topBarItems, UI.Label { text = wLabel2, fontSize = 12, fontColor = wColor2 })
+
+        local topStatusBar = UI.Panel {
+            width = "100%", height = 36,
+            backgroundColor = { 15, 25, 45, 240 },
+            flexDirection = "row", alignItems = "center", justifyContent = "space-between",
+            paddingHorizontal = 8,
+            children = topBarItems,
+        }
+        table.insert(actionChildren, topStatusBar)
+
+        -- ── 2) 全景图铺满 + 顶部数据/目标 + 底部浮动操作区 ──
+        -- 目标文案
+        local chapterGoal = ""
+        local chapterProgress = ""
+        if ChapterSystem and ChapterSystem.GetCurrentChapter then
+            local ok99, ch = pcall(ChapterSystem.GetCurrentChapter)
+            if ok99 and ch then
+                chapterGoal = ch.goal or ch.title or ""
+                chapterProgress = ch.progress or ""
+            end
+        end
+        if chapterGoal == "" then chapterGoal = "发展你的网吧帝国" end
+
+        -- 动态经营数据
+        local okTraffic, traffic = pcall(RefreshTraffic)
+        if not okTraffic then traffic = 0 end
+        local okCap, capacity = pcall(CalcCafeCapacity)
+        if not okCap then capacity = 1 end
+        local okIncome, dailyInc = pcall(CalcDailyIncome)
+        if not okIncome or type(dailyInc) ~= "number" then dailyInc = 0 end
+        local hourlyInc = math.floor(dailyInc / 8)
+        local reputation = playerData_.reputation or 0
+        local starRating = string.format("%.1f", math.min(5.0, reputation / 20))
+
+        -- 今日事件提示（队员问候 / 随机事件 / 默认经营提示）
+        local todayTip = nil
+        do
+            local okG, DG = pcall(require, "DailyGreeting")
+            if okG and DG and DG.GetTodayPreview then
+                local tip = DG.GetTodayPreview()
+                if tip then todayTip = tip end
+            end
+        end
+        if not todayTip then
+            -- 根据游戏状态生成简短经营提示
+            local tips = {}
+            if traffic >= capacity * 0.8 then table.insert(tips, "💥 客流爆满！考虑扩容")
+            elseif traffic <= capacity * 0.2 then table.insert(tips, "📢 客少冷清，试试贴传单")
+            end
+            if (playerData_.durability or 100) < 30 then table.insert(tips, "⚠️ 设备老化严重，注意维修") end
+            if playerData_.day == 1 then table.insert(tips, "💡 第一天：贴传单吸引客人吧！") end
+            if #tips > 0 then todayTip = tips[math.random(1, #tips)] end
+        end
+
+        -- 底部浮动操作区内容
+        local floatChildren = {}
+
+        -- 今日事件提示条（操作区顶部，给玩家方向感）
+        if todayTip then
+            table.insert(floatChildren, UI.Panel {
+                width = "100%", paddingHorizontal = 10, paddingVertical = 5,
+                backgroundColor = { 255, 200, 60, 20 },
+                borderRadius = 6,
+                borderWidth = 1, borderColor = { 200, 160, 40, 60 },
+                flexDirection = "row", alignItems = "center", gap = 6,
+                children = {
+                    UI.Label { text = todayTip, fontSize = 11, fontColor = { 255, 225, 130, 255 },
+                        flex = 1, flexShrink = 1 },
+                },
+            })
+        end
+
+        -- 每日赞助条（动态瓶颈检测，奖励玩家当前最需要的资源）
+        do
+            local canSponsor = AdManager.CanWatch("sponsor_gift", playerData_.day)
+            if canSponsor then
+                -- 动态检测瓶颈，决定今日赞助奖励
+                local sponsorIcon = "💼"
+                local sponsorText = ""
+                local sponsorRewardFn = nil
+
+                local curAP = playerData_.actionPoints or 0
+                local dur = playerData_.durability or 100
+                local rep = playerData_.reputation or 0
+                -- 声望升级阈值：每20点一级
+                local repNextThreshold = (math.floor(rep / 20) + 1) * 20
+                local repGap = repNextThreshold - rep
+
+                if curAP <= 0 then
+                    -- 瓶颈1：行动点耗尽
+                    sponsorIcon = "☕"
+                    sponsorText = "赞助商送来咖啡提神 · 行动点+1"
+                    sponsorRewardFn = function()
+                        playerData_.actionPoints = (playerData_.actionPoints or 0) + 1
+                        AddLog("☕ 赞助商的咖啡让你精力充沛！行动点+1")
+                    end
+                elseif dur < 30 then
+                    -- 瓶颈2：设备老化
+                    sponsorIcon = "🔧"
+                    sponsorText = "设备厂商免费上门保养 · 耐久+20"
+                    sponsorRewardFn = function()
+                        playerData_.durability = math.min(100, (playerData_.durability or 0) + 20)
+                        AddLog("🔧 厂商保养完毕！设备耐久+20")
+                    end
+                elseif repGap <= 10 then
+                    -- 瓶颈3：声望接近升级
+                    sponsorIcon = "📰"
+                    sponsorText = "本地媒体报道你的网吧 · 声望+5"
+                    sponsorRewardFn = function()
+                        playerData_.reputation = (playerData_.reputation or 0) + 5
+                        AddLog("📰 媒体报道带来关注！声望+5")
+                    end
+                else
+                    -- 保底：现金奖励（日收入50%）
+                    local bonus = math.floor((playerData_.incomePerDay or 100) * 0.5)
+                    sponsorIcon = "💼"
+                    sponsorText = "品牌商投放广告位 · +$" .. bonus
+                    sponsorRewardFn = function()
+                        playerData_.money = (playerData_.money or 0) + bonus
+                        AddLog("💼 广告赞助到账！+" .. FormatMoney(bonus))
+                    end
+                end
+
+                table.insert(floatChildren, UI.Panel {
+                    width = "100%", paddingHorizontal = 10, paddingVertical = 6,
+                    backgroundColor = { 60, 180, 80, 25 },
+                    borderRadius = 6,
+                    borderWidth = 1, borderColor = { 80, 200, 100, 80 },
+                    flexDirection = "row", alignItems = "center", gap = 6,
+                    onClick = function()
+                        AdManager.ShowAd("sponsor_gift", playerData_.day, function()
+                            if sponsorRewardFn then sponsorRewardFn() end
+                            PlaySFX("coin")
+                            BuildUI()
+                        end)
+                    end,
+                    children = {
+                        UI.Label { text = sponsorIcon, fontSize = 13 },
+                        UI.Label { text = sponsorText,
+                            fontSize = 11, fontColor = { 150, 240, 160, 255 },
+                            flex = 1, flexShrink = 1 },
+                        UI.Label { text = "领取 ▶", fontSize = 10, fontWeight = "bold",
+                            fontColor = { 100, 230, 120, 255 } },
+                    },
+                })
+            end
+        end
+
+        -- ═══ 三层固定布局：[提示条] + [Tab头+策略迷你条] + [内容ScrollView] + [结束今天] ═══
+        -- 判断策略卡状态：已选→迷你条(放Tab头下方)；未选→展开放提示层
+        local stratChosen = playerData_.strategyChosen and playerData_.strategyChoice
+        -- 第1层：全局提示条（事件 + 未选策略时展开选择面板）
+        local tipChildren = {}
+        if eventBar then table.insert(tipChildren, eventBar) end
+        if stratCard and not stratChosen then table.insert(tipChildren, stratCard) end
+
+        -- 第2层：Tab 切换头
+        local availTabs = GetActionTabs()
+        local tabBtns = {}
+        for _, t in ipairs(availTabs) do
+            local isActive = (currentActionTab_ == t.id)
+            local hasActivity = HasTabActivity(t.id)
+            table.insert(tabBtns, UI.Panel {
+                flex = 1, height = 30,
+                justifyContent = "center", alignItems = "center",
+                -- 下划线指示器：激活态底部金色条，非激活态无
+                borderWidth = { 0, 0, isActive and 2.5 or 0, 0 },
+                borderColor = { 220, 175, 60, 255 },
+                onClick = function()
+                    currentActionTab_ = t.id
+                    PlaySFX("click")
+                    BuildUI()
+                end,
+                children = {
+                    UI.Panel {
+                        flexDirection = "row", alignItems = "center", gap = 4,
+                        children = {
+                            UI.Label {
+                                text = t.icon .. " " .. t.label,
+                                fontSize = 13, fontWeight = isActive and "bold" or "normal",
+                                fontColor = isActive and { 255, 235, 160, 255 } or { 130, 120, 100, 180 },
+                            },
+                            hasActivity and not isActive and UI.Panel {
+                                width = 6, height = 6, borderRadius = 3,
+                                backgroundColor = { 255, 80, 80, 255 },
+                            } or nil,
+                        },
+                    },
+                },
+            })
+        end
+        local tabHeader = #availTabs > 1 and UI.Panel {
+            width = "100%", flexDirection = "row",
+            paddingHorizontal = 8,
+            borderWidth = { 0, 0, 1, 0 }, borderColor = { 80, 70, 55, 100 },
+            children = tabBtns,
+        } or nil
+
+        -- 第3层：Tab 内容（ScrollView 限高）
+        local tabContent = actionCard and UI.ScrollView {
+            width = "100%", flex = 1, flexBasis = 0,
+            children = { actionCard },
+        } or nil
+
+        -- 组装浮动区：提示 → Tab头 → [已选策略迷你条] → 内容 → 结束今天(固定底)
+        for _, tip in ipairs(tipChildren) do table.insert(floatChildren, tip) end
+        if tabHeader then table.insert(floatChildren, tabHeader) end
+        if stratCard and stratChosen then table.insert(floatChildren, stratCard) end
+        if tabContent then table.insert(floatChildren, tabContent) end
+        table.insert(floatChildren, fixedEndDayBtn)
+
+        -- ── 2a) 全景图（压缩高度，不再flex:1撑满） ──
+        table.insert(actionChildren, UI.Panel {
+            width = "100%", height = 110,
+            backgroundImage = GetCafeSceneImage(), backgroundFit = "cover",
+            children = {
+                -- 目标条（左上覆盖）
+                UI.Panel {
+                    position = "absolute", top = 0, left = 0, right = 0,
+                    paddingHorizontal = 10, paddingVertical = 5,
+                    backgroundColor = { 0, 0, 0, 140 },
+                    flexDirection = "row", alignItems = "center", gap = 6,
+                    children = {
+                        UI.Label { text = "🎯", fontSize = 12 },
+                        UI.Label { text = chapterGoal, fontSize = 11, fontWeight = "bold",
+                            fontColor = { 255, 230, 150, 255 }, flex = 1, flexShrink = 1 },
+                        chapterProgress ~= "" and UI.Label { text = chapterProgress, fontSize = 9,
+                            fontColor = { 180, 180, 180, 200 } } or nil,
+                    },
+                },
+                -- 动态数据浮条（底部覆盖）
+                UI.Panel {
+                    position = "absolute", bottom = 0, left = 0, right = 0,
+                    paddingHorizontal = 10, paddingVertical = 4,
+                    backgroundColor = { 0, 0, 0, 100 },
+                    flexDirection = "row", justifyContent = "center", gap = 12,
+                    children = {
+                        UI.Label { text = "👥" .. traffic .. "/" .. capacity,
+                            fontSize = 10, fontColor = { 200, 230, 255, 220 } },
+                        UI.Label { text = "💰+$" .. hourlyInc .. "/时",
+                            fontSize = 10, fontColor = { 200, 255, 200, 220 } },
+                        UI.Label { text = "⭐" .. starRating,
+                            fontSize = 10, fontColor = { 255, 230, 150, 220 } },
+                    },
+                },
+            },
+        })
+
+        -- ── 2b) 操作区（flex:1 占据剩余全部空间，不再限制 maxHeight） ──
+        table.insert(actionChildren, UI.Panel {
+            width = "100%", flex = 1, flexBasis = 0,
+            backgroundColor = { 15, 12, 8, 230 },
+            borderRadius = { 12, 12, 0, 0 },
+            paddingHorizontal = 8, paddingTop = 6, paddingBottom = 4,
+            gap = 3,
+            children = floatChildren,
+        })
+
+        -- ── 3) 底部导航栏（复用已有的 BuildBottomNavBar，含角标/渐进解锁） ──
+        table.insert(actionChildren, bottomNav)
+        if cafePopup then table.insert(actionChildren, cafePopup) end
+
+        -- EndDay 翻倍收入广告弹窗
+        if showEndDayAdPopup_ then
+            -- 预估今日收入（实时计算，比 incomePerDay 更准确）
+            local okInc, estIncome = pcall(CalcDailyIncome)
+            if not okInc or type(estIncome) ~= "number" then estIncome = 0 end
+            -- 保底：收入为0时使用历史日均或最低保底值，避免"翻倍0"无意义
+            if estIncome <= 0 then
+                estIncome = math.max(playerData_.incomePerDay or 0, playerData_.computers * 25, 50)
+            end
+            local todayIncome = estIncome
+            table.insert(actionChildren, UI.Panel {
+                position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+                backgroundColor = { 0, 0, 0, 180 },
+                justifyContent = "center", alignItems = "center",
+                paddingHorizontal = 30,
+                onClick = function()
+                    -- 点击背景关闭弹窗并直接结束一天
+                    showEndDayAdPopup_ = false
+                    local ok, err = pcall(EndDay)
+                    if not ok then
+                        log:Write(LOG_ERROR, "[EndDay] crashed: " .. tostring(err))
+                        currentPhase_ = PHASE_MANAGE
+                        pcall(BuildUI)
+                    end
+                end,
+                children = {
+                    UI.Panel {
+                        width = "100%", backgroundColor = { 30, 22, 12, 255 },
+                        borderRadius = PX.cardRadius, borderWidth = 2,
+                        borderColor = { 205, 162, 60, 200 },
+                        padding = 16, gap = 12, alignItems = "center",
+                        onClick = function() end, -- 阻止穿透
+                        children = {
+                            UI.Label { text = "💰 翻倍今日收入？", fontSize = 16, fontWeight = "bold",
+                                fontColor = { 245, 215, 128, 255 } },
+                            UI.Label { text = "预估收入 " .. FormatMoney(todayIncome) .. " → " .. FormatMoney(todayIncome * 2),
+                                fontSize = 13, fontColor = { 180, 220, 160, 255 } },
+                            -- 看广告翻倍按钮
+                            UI.Panel {
+                                width = "100%", height = 44, borderRadius = PX.cardRadius,
+                                backgroundColor = { 60, 140, 50, 255 },
+                                justifyContent = "center", alignItems = "center",
+                                marginTop = 4,
+                                onClick = function()
+                                    showEndDayAdPopup_ = false
+                                    AdManager.ShowAd("double_income", playerData_.day, function()
+                                        playerData_.money = (playerData_.money or 0) + todayIncome
+                                        AddLog("🎬 看广告翻倍收入！额外获得 " .. FormatMoney(todayIncome))
+                                        local ok, err = pcall(EndDay)
+                                        if not ok then
+                                            log:Write(LOG_ERROR, "[EndDay] crashed: " .. tostring(err))
+                                            currentPhase_ = PHASE_MANAGE
+                                            pcall(BuildUI)
+                                        end
+                                    end)
+                                end,
+                                children = {
+                                    UI.Label { text = "🎬 看广告翻倍", fontSize = 15, fontWeight = "bold",
+                                        fontColor = { 255, 255, 255, 255 } },
+                                },
+                            },
+                            -- 跳过按钮
+                            UI.Panel {
+                                width = "100%", height = 36, borderRadius = PX.cardRadius,
+                                backgroundColor = { 50, 40, 30, 255 },
+                                borderWidth = 1, borderColor = { 100, 80, 60, 150 },
+                                justifyContent = "center", alignItems = "center",
+                                onClick = function()
+                                    showEndDayAdPopup_ = false
+                                    local ok, err = pcall(EndDay)
+                                    if not ok then
+                                        log:Write(LOG_ERROR, "[EndDay] crashed: " .. tostring(err))
+                                        currentPhase_ = PHASE_MANAGE
+                                        pcall(BuildUI)
+                                    end
+                                end,
+                                children = {
+                                    UI.Label { text = "跳过，直接结束", fontSize = 13,
+                                        fontColor = { 140, 120, 100, 200 } },
+                                },
+                            },
+                        },
+                    },
+                },
+            })
+        end
+
+        -- 帝国版图 overlay
+        if mapViewOpen_ then
+            local okMap, mapContent = pcall(UIMapView.Build)
+            if not okMap then
+                log:Write(LOG_ERROR, "[BuildManageUI] UIMapView.Build error: " .. tostring(mapContent))
+                mapContent = UI.Label { text = "⚠️ 地图加载失败", fontSize = 14, fontColor = { 255, 100, 100, 255 } }
+            end
+            table.insert(actionChildren, UI.Panel {
+                position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+                backgroundColor = { 10, 15, 8, 230 },
+                justifyContent = "flex-start", alignItems = "center",
+                paddingTop = 10,
+                onClick = function()
+                    mapViewOpen_ = false
+                    PlaySFX("click")
+                    BuildUI()
+                end,
+                children = {
+                    UI.Panel {
+                        width = "95%", maxHeight = "92%",
+                        backgroundColor = { 25, 30, 20, 250 },
+                        borderRadius = 14,
+                        borderWidth = 1, borderColor = { 80, 120, 50, 150 },
+                        onClick = function() end, -- 阻止点击穿透关闭
+                        children = {
+                            UI.ScrollView {
+                                id = "map-view-scroll",
+                                width = "100%", flex = 1, flexBasis = 0,
+                                children = { mapContent },
+                            },
+                        },
+                    },
+                },
+            })
+        end
+
+        -- 非洲文化图鉴 overlay
+        if loreOpen_ then
+            local okLore, loreOverlay = pcall(BuildLoreOverlay)
+            if okLore and loreOverlay then table.insert(actionChildren, loreOverlay) end
+        end
+
+        return UI.Panel {
+            width = "100%", height = "100%",
+            backgroundColor = C.bg,
+            children = actionChildren,
+        }
+    end
+
+    -- ── 其他Tab：全宽内容 ──
     local ok4, tabContent = pcall(BuildManageTabContent)
     if not ok4 then
         log:Write(LOG_ERROR, "[BuildManageUI] BuildManageTabContent error: " .. tostring(tabContent))
-        tabContent = UI.Label { text = "⚠️ 内容加载失败: " .. tostring(tabContent), fontSize = 13, fontColor = { 255, 100, 100, 255 }, whiteSpace = "normal", width = "90%" }
+        tabContent = UI.Label { text = "⚠️ 内容加载失败: " .. tostring(tabContent),
+            fontSize = 13, fontColor = { 255, 100, 100, 255 }, whiteSpace = "normal", width = "90%" }
+    end
+
+    -- 转生确认弹窗层
+    local prestigePopup = nil
+    if showPrestigeConfirm_ and manageTab_ == "automation" then
+        local okPop, popContent = pcall(BuildPrestigeConfirmPopup)
+        if okPop then prestigePopup = popContent end
+    end
+
+    -- 动态构建子列表，避免 nil 在中间位置截断 ipairs 遍历
+    local otherChildren = {
+        statusBar,
+        UI.Panel {
+            flex = 1, width = "100%", flexBasis = 0,
+            backgroundImage = bgImg,
+            backgroundFit = "cover",
+            imageTint = { 30, 24, 18, 200 },
+            children = {
+                UI.ScrollView {
+                    id = "manage-scroll",
+                    flex = 1, width = "100%", flexBasis = 0,
+                    paddingHorizontal = 8, paddingVertical = 8,
+                    children = { tabContent },
+                },
+            },
+        },
+        bottomNav,
+    }
+    if prestigePopup then table.insert(otherChildren, prestigePopup) end
+
+    -- 成就弹窗层（升级Tab）
+    if achievePopupOpen_ and manageTab_ == "upgrade" then
+        local okA, aPop = pcall(BuildAchievementPopup)
+        if okA and aPop then table.insert(otherChildren, aPop) end
+    end
+
+    -- 赛季通行证弹窗层（升级Tab）
+    if seasonPassPopupOpen_ and manageTab_ == "upgrade" then
+        local okS, sPop = pcall(BuildSeasonPassPopup)
+        if okS and sPop then table.insert(otherChildren, sPop) end
+    end
+
+    -- 邮箱弹窗层（升级Tab）
+    if mailboxPopupOpen_ and manageTab_ == "upgrade" then
+        local okM, mPop = pcall(BuildMailboxPopup)
+        if okM and mPop then table.insert(otherChildren, mPop) end
+    end
+
+    -- 非洲文化图鉴 overlay（所有Tab可访问）
+    if loreOpen_ then
+        local okLore, loreOverlay = pcall(BuildLoreOverlay)
+        if okLore and loreOverlay then table.insert(otherChildren, loreOverlay) end
     end
 
     return UI.Panel {
         width = "100%", height = "100%",
-        children = {
-            statusBar,
-            -- 经营状态场景图（根据人数/事件动态切换）
-            UI.Panel {
-                width = "100%", height = 160,
-                backgroundImage = cafeImg,
-                backgroundFit = "cover",
-            },
-            -- 下方内容区：背景图只覆盖tabBar+滚动区
-            UI.Panel {
-                flex = 1, width = "100%", flexBasis = 0,
-                backgroundImage = bgImg,
-                backgroundFit = "cover",
-                imageTint = { 30, 24, 18, 200 },
-                children = {
-                    -- Tab 导航栏
-                    tabBar,
-                    -- 主内容（分Tab显示，减少滚动）
-                    UI.ScrollView {
-                        id = "manage-scroll",
-                        flex = 1, width = "100%", flexBasis = 0,
-                        paddingHorizontal = 8, paddingVertical = 8,
-                        children = { tabContent },
-                    },
-                },
-            },
-        },
+        backgroundColor = C.bg,
+        children = otherChildren,
     }
 end
 
-function BuildStatusBar()
-    local traffic = RefreshTraffic()
-    local capacity = CalcCafeCapacity()
-    local tDesc, tColor = GetTrafficDesc(traffic, capacity)
-    local moneyStr = "$" .. FormatMoney(playerData_.money)
-    local ec = playerData_.equipCondition or 100
-
-    -- ── 第二行：核心指标 ──
-    local statItems = {}
-    table.insert(statItems, { text = "D" .. playerData_.day, color = C.textDim })
-    table.insert(statItems, { text = "AP " .. playerData_.actionPoints,
-        color = playerData_.actionPoints > 0 and C.gold or C.textLight })
-    table.insert(statItems, { text = "|", color = { C.textLight[1], C.textLight[2], C.textLight[3], 80 } })
-    local repStr = playerData_.reputation >= 100000 and string.format("%.1fK", playerData_.reputation / 1000) or tostring(playerData_.reputation)
-    table.insert(statItems, { text = "Rep " .. repStr, color = C.gold })
-    table.insert(statItems, { text = tDesc .. traffic .. "/" .. capacity, color = tColor })
-
-    -- 政变警告
-    if IsCoupActive() then
-        table.insert(statItems, { text = "[政变]" .. playerData_.coupDaysLeft .. "天", color = C.red })
-    end
-
-    local statLabels = {}
-    for _, s in ipairs(statItems) do
-        table.insert(statLabels, UI.Label { text = s.text, fontSize = 11, fontColor = s.color })
-    end
-
-    -- ── 第三行：维护 + 可选指标 ──
-    local line3Items = {}
-    table.insert(line3Items, { text = "维护 " .. ec .. "%",
-        color = ec <= 30 and C.red or (ec <= 50 and C.gold or C.textLight) })
-    local karmaText = (playerData_.karma >= 4 and "善" or (playerData_.karma <= -3 and "恶" or "中")) .. playerData_.karma
-    local karmaColor = playerData_.karma >= 4 and C.green or (playerData_.karma <= -3 and C.red or C.textLight)
-    table.insert(line3Items, { text = karmaText, color = karmaColor })
-    local goldOz = playerData_.goldOunces or 0
-    if goldOz > 0 then
-        local gVal = math.floor(goldOz * GetGoldPrice())
-        table.insert(line3Items, { text = "Au " .. string.format("%.1f", goldOz) .. "oz ~$" .. FormatMoney(gVal), color = C.gold })
-    end
-    local branchCount = #(playerData_.branches or {})
-    if branchCount > 0 then
-        table.insert(line3Items, { text = "分店x" .. branchCount, color = C.textDim })
-    end
-
-    local line3Labels = {}
-    for _, s in ipairs(line3Items) do
-        table.insert(line3Labels, UI.Label { text = s.text, fontSize = 10, fontColor = s.color })
-    end
-
-    return UI.Panel {
-        width = "100%", height = 48,
-        backgroundColor = C.statusBar,
-        borderWidth = { 0, 0, 1, 0 }, borderColor = { C.border[1], C.border[2], C.border[3], 80 },
-        paddingHorizontal = 12, justifyContent = "center", gap = 1,
-        children = {
-            -- 第一行：网吧名（左） + 金额（右，金色突出）
-            UI.Panel {
-                width = "100%", flexDirection = "row", alignItems = "center",
-                justifyContent = "space-between",
-                paddingRight = 80,
-                children = {
-                    UI.Label { text = playerData_.cafeName, fontSize = 13, fontColor = C.text, flexShrink = 1 },
-                    UI.Label { text = moneyStr, fontSize = 16, fontWeight = "bold", fontColor = C.gold },
-                },
-            },
-            -- 第二行：核心指标
-            UI.Panel {
-                width = "100%", flexDirection = "row", alignItems = "center",
-                flexWrap = "wrap", gap = 6, paddingRight = 80,
-                children = statLabels,
-            },
-            -- 第三行：维护 + 可选指标
-            #line3Labels > 0 and UI.Panel {
-                width = "100%", flexDirection = "row", alignItems = "center",
-                flexWrap = "wrap", gap = 6, paddingRight = 80,
-                children = line3Labels,
-            } or nil,
-        },
-    }
-end
-
---- 客流量可视化条
-function BuildTrafficBar()
-    local traffic = RefreshTraffic()
-    local capacity = CalcCafeCapacity()
-    local ratio = math.min(1.5, traffic / math.max(1, capacity))
-    local pct = math.min(100, math.floor(ratio * 100))
-    local desc, descColor = GetTrafficDesc(traffic, capacity)
-    -- 进度条颜色
-    local barColor
-    if ratio >= 1.3 then barColor = { 240, 60, 60, 255 }       -- 爆满红色
-    elseif ratio >= 1.0 then barColor = C.green                  -- 满员绿色
-    elseif ratio >= 0.7 then barColor = { 255, 185, 50, 255 }  -- 正常金色
-    else barColor = C.textDim end                               -- 冷清灰色
-    -- 客流图标动画（用不同表情反映状态）
-    local icons = ratio >= 1.0
-        and "人流满" or (ratio >= 0.7 and "人流中" or "人流少")
-    local weekday = ((playerData_.day - 1) % 7) + 1
-    local dayTag = weekday >= 6 and " 周末" or ""
-    return UI.Panel {
-        width = "100%", gap = 3,
-        children = {
-            UI.Panel {
-                flexDirection = "row", justifyContent = "space-between", width = "100%",
-                children = {
-                    UI.Label { text = icons .. " 客流", fontSize = 14, fontColor = descColor },
-                    UI.Label { text = traffic .. "/" .. capacity .. " " .. desc .. dayTag, fontSize = 13, fontColor = descColor },
-                },
-            },
-            -- 进度条背景
-            UI.Panel {
-                width = "100%", height = 8, borderRadius = 4,
-                backgroundColor = C.cardAlt,
-                children = {
-                    UI.Panel {
-                        width = pct .. "%", height = "100%", borderRadius = 4,
-                        backgroundColor = barColor,
-                    },
-                },
-            },
-        },
-    }
-end
-
---- 赞助商中心：主动看广告获取小额随机奖励
-function BuildSponsorCenter()
-    if not AdManager.CanWatch("sponsor_small", playerData_.day) then return nil end
-    -- 随机奖励池
-    local rewards = {
-        { label = "$30现金",   fn = function() playerData_.money = playerData_.money + 30; playerData_.totalEarnings = (playerData_.totalEarnings or 0) + 30; AddLog("📺 赞助商小额赞助 +$30！") end },
-        { label = "声望+5",   fn = function() playerData_.reputation = playerData_.reputation + 5; AddLog("📺 赞助商帮你在社交媒体曝光！声望+5") end },
-        { label = "设备+10%", fn = function() playerData_.equipCondition = math.min(100, (playerData_.equipCondition or 80) + 10); AddLog("📺 赞助商寄来零件！设备状态+10%") end },
-        { label = "行动点+1", fn = function() playerData_.actionPoints = playerData_.actionPoints + 1; AddLog("📺 赞助商的咖啡让你精力充沛！行动点+1") end },
-    }
-    return UI.Panel {
-        width = "100%", padding = 10, borderRadius = 12,
-        backgroundColor = C.cardAlt,
-        borderWidth = 1, borderColor = C.border,
-        gap = 6,
-        children = {
-            UI.Label { text = "赞助商中心", fontSize = 15, fontColor = C.gold, fontWeight = "bold" },
-            UI.Label {
-                text = "每天可观看" .. (AdManager.limits.sponsor_small or 3) .. "次赞助商短片，获取随机小额奖励",
-                fontSize = 11, fontColor = C.textDim, whiteSpace = "normal",
-            },
-            AdManager.AdButton {
-                sceneId = "sponsor_small", day = playerData_.day,
-                text = "观看赞助商短片 → 随机奖励",
-                width = "100%", height = 38, fontSize = 13, borderRadius = 8,
-                backgroundColor = { C.accent[1], C.accent[2], C.accent[3], 200 }, fontColor = { 255, 255, 255, 255 },
-                borderWidth = 1, borderColor = C.border,
-                onReward = function()
-                    local r = rewards[math.random(1, #rewards)]
-                    r.fn()
-                    playerData_.questAdWatchCount = (playerData_.questAdWatchCount or 0) + 1
-                    PlaySFX("coin")
-                    BuildUI()
-                end,
-            },
-        },
-    }
-end
-
---- 分店选择器/展示模块
-function BuildBranchSelector()
-    local branches = playerData_.branches or {}
-    if #branches == 0 then return nil end
-
-    local branchCards = {}
-    for i, br in ipairs(branches) do
-        -- 按城市设置不同底色
-        local locColors = {
-            lagos    = { 50, 180, 80 },
-            nairobi  = { 60, 140, 200 },
-            accra    = { 200, 160, 60 },
-            dakar    = { 80, 160, 200 },
-            capetown = { 160, 80, 200 },
-            kinshasa = { 200, 120, 60 },
-        }
-        local lc = locColors[br.locationId] or { 80, 120, 80 }
-        local daysOpen = playerData_.day - (br.day or playerData_.day)
-
-        local branchBg = SCENE_IMAGES["branch_" .. (br.locationId or "")]
-        table.insert(branchCards, UI.Panel {
-            width = "100%", padding = 10, gap = 4,
-            backgroundColor = branchBg and { 0, 0, 0, 100 } or { lc[1], lc[2], lc[3], 35 },
-            backgroundImage = branchBg,
-            backgroundFit = "cover",
-            borderRadius = 10, borderWidth = 1,
-            borderColor = { lc[1] + 40, lc[2] + 40, lc[3] + 40, 90 },
-            children = {
-                -- 行1: 店名 + 日收入
-                UI.Panel {
-                    width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                    children = {
-                        UI.Label { text = (br.locationEmoji or "🏪") .. " " .. (br.name or ("分店" .. i)),
-                            fontSize = 14, fontColor = C.text, fontWeight = "bold" },
-                        UI.Label { text = "$" .. (br.income or 40) .. "/天",
-                            fontSize = 13, fontColor = C.green },
-                    },
-                },
-                -- 行2: 游戏 + 加成
-                UI.Panel {
-                    width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                    children = {
-                        UI.Label { text = (br.gameEmoji or "🎮") .. " " .. (br.gameName or "综合"),
-                            fontSize = 12, fontColor = C.textDim },
-                        UI.Label { text = "" .. (br.bonusDesc or "") .. " | " .. (br.gameBonusDesc or ""),
-                            fontSize = 11, fontColor = C.textDim },
-                    },
-                },
-                -- 行3: 运营天数
-                UI.Label { text = "开业于第" .. (br.day or "?") .. "天 · 已运营" .. daysOpen .. "天",
-                    fontSize = 11, fontColor = C.textDim },
-            },
-        })
-    end
-
-    return UI.Panel {
-        width = "100%", padding = 12, gap = 8,
-        backgroundColor = C.cardAlt, borderRadius = 14,
-        borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 60 },
-        boxShadow = { { x = 0, y = 2, blur = 10, color = { 0, 0, 0, 60 } } },
-        children = {
-            UI.Panel {
-                width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                children = {
-                    PanelHeader("连锁帝国", { icon = nil, color = C.gold }),
-                    UI.Label { text = #branches .. "/3 家", fontSize = 13,
-                        fontColor = #branches >= 3 and C.green or C.textDim },
-                },
-            },
-            UI.Divider { color = { C.accent[1], C.accent[2], C.accent[3], 40 } },
-            table.unpack(branchCards),
-        },
-    }
-end
-
-function BuildCafeCard()
-    local netNames = { "蜗牛", "普通", "高速", "光纤", "卫星" }
-    local chrNames = { "塑料凳", "折叠椅", "网吧椅", "电竞椅", "皇帝座" }
-    local acNames  = { "无", "小空调", "中央空调", "全屋恒温" }
-    local solNames = { "无", "小面板", "中面板", "大面板" }
-    local foodNames = { "无", "烤玉米摊", "烤鸡摊", "小卖部" }
-    local decoNames = { "无", "非洲面具", "壁画+面具", "主题装修" }
-
-    local netN = netNames[playerData_.netSpeed] or "?"
-    local chrN = chrNames[playerData_.chairLevel] or "?"
-    local acN  = acNames[playerData_.acLevel + 1] or "?"
-    local solN = solNames[playerData_.solarLevel + 1] or "?"
-    local foodN = foodNames[playerData_.foodShop + 1] or "?"
-    local decoN = decoNames[playerData_.decoLevel + 1] or "?"
-
-    -- ── 带进度条的信息行 ──
-    local function ProgressRow(icon, label, current, maxVal, valueTxt, barColor)
-        local pct = math.floor(math.min(1, current / math.max(1, maxVal)) * 100)
-        return UI.Panel {
-            width = "100%", gap = 2, flexShrink = 0,
-            children = {
-                InfoRow(icon .. " " .. label, valueTxt, barColor),
-                UI.Panel {
-                    width = "100%", height = 5, minHeight = 5, borderRadius = 3,
-                    backgroundColor = C.cardAlt,
-                    flexShrink = 0,
-                    children = {
-                        UI.Panel {
-                            width = pct .. "%", height = "100%", borderRadius = 3,
-                            backgroundColor = barColor or { 80, 160, 255, 200 },
-                        },
-                    },
-                },
-            },
-        }
-    end
-
-    -- ── 模块1: 基础设施 ──
-    local infraSection = UI.Panel {
-        width = "100%", gap = 4, flexShrink = 0,
-        children = {
-            PanelHeader("基础设施", { icon = nil, compact = true }),
-            (function()
-                local initComputers = 3
-                local computerUpgradeMax = initComputers + #UPGRADES.computer.costs  -- 场地上限
-                local cur = playerData_.computers
-                local desc
-                if cur > computerUpgradeMax then
-                    desc = cur .. "台(场地" .. computerUpgradeMax .. "+事件加成" .. (cur - computerUpgradeMax) .. ")"
-                elseif cur >= computerUpgradeMax then
-                    desc = cur .. "/" .. computerUpgradeMax .. "台(已满)"
-                else
-                    desc = cur .. "/" .. computerUpgradeMax .. "台"
-                end
-                return ProgressRow("", "电脑", math.min(cur, computerUpgradeMax), computerUpgradeMax, desc, { 80, 180, 255, 255 })
-            end)(),
-            ProgressRow("", "座椅", playerData_.chairLevel, 5,
-                chrN .. " Lv" .. playerData_.chairLevel, { 160, 130, 255, 255 }),
-            ProgressRow("🌐", "网速", playerData_.netSpeed, 5,
-                netN .. " Lv" .. playerData_.netSpeed, { 100, 220, 200, 255 }),
-        },
-    }
-
-    -- ── 模块2: 环境配套 ──
-    local envChildren = {
-        PanelHeader("环境配套", { icon = "🌿", compact = true }),
-    }
-    if playerData_.acLevel > 0 then
-        table.insert(envChildren, ProgressRow("❄️", "空调", playerData_.acLevel, 3,
-            acN, { 100, 200, 240, 255 }))
-    else
-        table.insert(envChildren, InfoRow("❄️ 空调", "未安装", C.textDim))
-    end
-    if playerData_.solarLevel > 0 then
-        table.insert(envChildren, ProgressRow("☀️", "太阳能", playerData_.solarLevel, 3,
-            solN, { 255, 200, 60, 255 }))
-    else
-        table.insert(envChildren, InfoRow("☀️ 太阳能", "未安装", C.textDim))
-    end
-    if playerData_.foodShop > 0 then
-        table.insert(envChildren, ProgressRow("🍗", "小卖部", playerData_.foodShop, 3,
-            foodN, { 255, 160, 80, 255 }))
-    else
-        table.insert(envChildren, InfoRow("🍗 小卖部", "未开设", C.textDim))
-    end
-    if playerData_.decoLevel > 0 then
-        table.insert(envChildren, ProgressRow("🎭", "装饰", playerData_.decoLevel, 3,
-            decoN, { 220, 120, 200, 255 }))
-    else
-        table.insert(envChildren, InfoRow("🎭 装饰", "无", C.textDim))
-    end
-    -- 发电机 & 燃油
-    local genLv = playerData_.generatorLevel or 0
-    local genNames = { "无", "小型柴油机", "中型发电机", "大型静音发电机" }
-    if genLv > 0 then
-        table.insert(envChildren, ProgressRow("", "发电机", genLv, 3,
-            genNames[genLv + 1] or "?", { 255, 220, 80, 255 }))
-        local fuel = playerData_.fuel or 0
-        local cap = playerData_.fuelCapacity or 20
-        local fuelColor = fuel <= 0 and { 240, 70, 70, 255 }
-            or (fuel <= math.floor(cap * 0.3) and { 255, 185, 50, 255 } or { 100, 220, 140, 255 })
-        table.insert(envChildren, ProgressRow("⛽", "燃油", fuel, cap,
-            fuel .. "/" .. cap .. "L", fuelColor))
-    else
-        table.insert(envChildren, InfoRow("发电机", "未购买", C.textDim))
-    end
-    -- 分店
-    local branches = playerData_.branches or {}
-    if #branches > 0 then
-        table.insert(envChildren, InfoRow("分店", #branches .. "家", C.green))
-    end
-
-    local envSection = UI.Panel {
-        width = "100%", gap = 4, flexShrink = 0,
-        children = envChildren,
-    }
-
-    -- ── 模块3: 客流状态（复用已有 BuildTrafficBar） ──
-    local trafficSection = BuildTrafficBar()
-
-    -- ── 模块4: 财务简报 ──
-    local income = CalcDailyIncome()
-    local _, totalExpense = CalcDailyExpenses()
-    local netIncome = income - totalExpense
-    local netColor = netIncome >= 0 and C.green or C.red
-    local netSign = netIncome >= 0 and "+" or ""
-
-    local finChildren = {
-        PanelHeader("财务简报", { icon = "💹", compact = true }),
-        -- 净收入突出显示
-        UI.Panel {
-            width = "100%", flexDirection = "row", justifyContent = "center",
-            alignItems = "center", gap = 6, flexShrink = 0,
-            children = {
-                UI.Label { text = "日净收入", fontSize = 13, fontColor = C.textDim },
-                UI.Label { text = netSign .. "$" .. netIncome, fontSize = 18, fontColor = netColor },
-            },
-        },
-        -- 收支明细
-        InfoRow("收入", "+$" .. income, C.green),
-        InfoRow("支出", "-$" .. totalExpense, C.red),
-    }
-    -- 借款显示
-    if playerData_.debt > 0 then
-        table.insert(finChildren, InfoRow("欠款", "$" .. playerData_.debt, C.red))
-    end
-    -- 哈弗币
-    if playerData_.havocCoins > 0 then
-        table.insert(finChildren, InfoRow("🪙 哈弗币", tostring(playerData_.havocCoins), C.gold))
-    end
-
-    local finSection = UI.Panel {
-        width = "100%", gap = 4, flexShrink = 0,
-        backgroundColor = C.cardAlt, borderRadius = 10,
-        padding = 10,
-        children = finChildren,
-    }
-
-    -- ── 模块5: 联动加成（有才显示） ──
-    local synergies = CalcUpgradeSynergies()
-    ---@type table|nil
-    local synergySection = nil
-    if #synergies > 0 then
-        local synergyItems = {
-            PanelHeader("联动加成", { icon = nil, compact = true, color = C.gold }),
-        }
-        for _, s in ipairs(synergies) do
-            table.insert(synergyItems, UI.Label {
-                text = s.name .. "  " .. s.desc,
-                fontSize = 14, fontColor = { C.green[1], C.green[2], C.green[3], 220 },
-                whiteSpace = "normal", lineHeight = 1.3,
-            })
-        end
-        synergySection = UI.Panel {
-            width = "100%", gap = 3,
-            children = synergyItems,
-        }
-    end
-
-    -- ── 组装卡片 ──
-    local cardChildren = {
-        UI.Panel {
-            flexDirection = "row", justifyContent = "space-between",
-            alignItems = "center", width = "100%",
-            children = {
-                PanelHeader("网吧概况", { icon = nil }),
-                UI.Panel {
-                    paddingHorizontal = 8, paddingVertical = 2,
-                    backgroundColor = { 240, 180, 50, 20 }, borderRadius = 10,
-                    children = {
-                        UI.Label { text = "第" .. playerData_.day .. "天", fontSize = 13, fontColor = C.gold },
-                    },
-                },
-            },
-        },
-        infraSection,
-        UI.Divider { spacing = 4, color = { C.border[1], C.border[2], C.border[3], 120 } },
-        envSection,
-        UI.Divider { spacing = 4, color = { C.border[1], C.border[2], C.border[3], 120 } },
-        trafficSection,
-        UI.Divider { spacing = 4, color = { C.border[1], C.border[2], C.border[3], 120 } },
-        finSection,
-    }
-    if synergySection then
-        table.insert(cardChildren, UI.Divider { spacing = 4, color = { C.border[1], C.border[2], C.border[3], 120 } })
-        table.insert(cardChildren, synergySection)
-    end
-
-    return UI.Panel {
-        width = "100%", padding = 12, gap = 8,
-        backgroundColor = C.card, borderRadius = 14,
-        borderWidth = 1, borderColor = C.border,
-        children = cardChildren,
-    }
-end
-
-function BuildActionCard()
-    local nextCh = currentChapter_ + 1
-    local hasNext = nextCh <= #CHAPTERS
-    local canAdv, advReason = false, ""
-    if hasNext then
-        if nextCh == 2 and #teamMembers_ >= 1 and playerData_.day >= 4 then canAdv = true
-        elseif nextCh == 3 and #teamMembers_ >= 2 and GetTeamAvgSkill() >= 30 then canAdv = true
-        elseif nextCh == 4 and playerData_.day >= 14 and playerData_.reputation >= 80 then canAdv = true
-        elseif nextCh == 5 and playerData_.day >= 18 and (playerData_.tournamentWins or 0) >= 1 then canAdv = true
-        elseif nextCh > 5 then canAdv = true  -- 未来扩展章节默认可推进
-        end
-        if not canAdv then
-            if nextCh == 2 then advReason = "第二章（第4天 + 队员1人）"
-            elseif nextCh == 3 then advReason = "第三章（队员2人 + 平均技术30）"
-            elseif nextCh == 4 then advReason = "第四章（第14天 + 声望80）"
-            elseif nextCh == 5 then advReason = "第五章（第18天 + 赢过1次锦标赛）"
-            end
-        end
-    end
-
-    local ap = playerData_.actionPoints
-    local noAP = ap <= 0
-
-    -- ── 辅助：创建行动按钮 ──
-    local function ActionBtn(props)
-        if props.variant then
-            return UI.Button {
-                text = props.text,
-                width = props.width or "100%",
-                height = props.height or 44, fontSize = 14, borderRadius = 10,
-                disabled = props.disabled,
-                variant = props.variant,
-                flex = props.flex,
-                onClick = props.onClick,
-            }
-        end
-        return UI.Button {
-            text = props.text,
-            width = props.width or "100%",
-            height = props.height or 44, fontSize = 14, fontWeight = "bold", borderRadius = 10,
-            backgroundColor = props.disabled and { 50, 44, 40, 255 } or C.card,
-            fontColor = props.disabled and C.textLight or C.text,
-            borderWidth = 1,
-            borderColor = props.disabled and C.border or (props.borderColor or C.accent),
-            disabled = props.disabled,
-            flex = props.flex,
-            onClick = props.onClick,
-        }
-    end
-
-    -- ── 辅助：2x2 网格按钮（双行：标题 + 金色价格） ──
-    local function GridBtn(props)
-        local disabled = props.disabled
-        return UI.Panel {
-            width = "48%", height = 64, borderRadius = 10,
-            backgroundColor = disabled and { 50, 44, 40, 255 } or C.card,
-            borderWidth = 1.5,
-            borderColor = disabled and C.border or C.accent,
-            justifyContent = "center", alignItems = "center", gap = 2,
-            onClick = not disabled and props.onClick or nil,
-            children = {
-                UI.Label {
-                    text = props.title, fontSize = 14, fontWeight = "bold",
-                    fontColor = disabled and C.textLight or C.text,
-                },
-                props.price and UI.Label {
-                    text = props.price, fontSize = 12,
-                    fontColor = disabled and C.textLight or C.gold,
-                } or nil,
-            },
-        }
-    end
-
-    -- ── 1) 标题行（暗色底 + AP 徽章，与按钮风格统一） ──
-    local header = UI.Panel {
-        width = "100%", flexDirection = "row",
-        justifyContent = "space-between", alignItems = "center",
-        paddingHorizontal = 12, paddingVertical = 8,
-        backgroundColor = C.cardAlt,
-        borderRadius = 10,
-        borderWidth = 1, borderColor = C.border,
-        children = {
-            -- 左侧：标题
-            UI.Label { text = "行动", fontSize = 14, fontColor = C.text, fontWeight = "bold" },
-            -- 右侧：AP 徽章
-            UI.Panel {
-                flexDirection = "row", alignItems = "center", gap = 4,
-                paddingHorizontal = 10, paddingVertical = 3,
-                backgroundColor = { C.border[1], C.border[2], C.border[3], 120 },
-                borderRadius = 10,
-                children = {
-                    UI.Label { text = "AP", fontSize = 13, fontColor = C.textDim },
-                    UI.Label { text = ap .. "/3", fontSize = 14, fontWeight = "bold",
-                        fontColor = noAP and C.red or C.gold },
-                },
-            },
-        },
-    }
-
-    -- ── 广告：额外行动点（AP耗尽时显示） ──
-    local adExtraAP = nil
-    if noAP and AdManager.CanWatch("extra_ap", playerData_.day) then
-        adExtraAP = AdManager.AdButton {
-            sceneId = "extra_ap", day = playerData_.day,
-            text = "看视频多干一件事 +1AP",
-            height = 42, fontSize = 13,
-            onReward = function()
-                playerData_.actionPoints = playerData_.actionPoints + 1
-                AddLog("🎬 赞助商的能量饮料让你恢复了精力！行动点+1")
-                BuildUI()
-            end,
-        }
-    end
-
-    -- ── 广告：翻倍昨日收入 / 经营补贴 ──
-    local adDoubleIncome = nil
-    local lastNet = playerData_.lastNetIncome or 0
-    if AdManager.CanWatch("double_income", playerData_.day) then
-        local bonus = lastNet > 0 and lastNet or math.max(50, math.floor(playerData_.day * 8))
-        local label = lastNet > 0
-            and ("看广告翻倍昨日收入 +$" .. bonus)
-            or  ("看广告领经营补贴 +$" .. bonus)
-        adDoubleIncome = AdManager.AdButton {
-            sceneId = "double_income", day = playerData_.day,
-            text = label,
-            height = 42, fontSize = 13,
-            onReward = function()
-                playerData_.money = playerData_.money + bonus
-                playerData_.totalEarnings = (playerData_.totalEarnings or 0) + bonus
-                playerData_.lastNetIncome = 0
-                AddLog("🎬 赞助商追加了经营奖励！额外获得$" .. bonus .. "！")
-                BuildUI()
-            end,
-        }
-    end
-
-    -- ── 1.5) 每日委托任务面板（第10天后显示） ──
-    local questPanel = nil
-    if dailyQuest_ and playerData_.day >= 10 then
-        CheckQuestProgress()
-        local q = dailyQuest_
-        local done = q.progress >= q.goal
-        local progressText = done and "已完成" or (q.progress .. "/" .. q.goal)
-        local questChildren = {
-            UI.Panel {
-                flexDirection = "row", justifyContent = "space-between", alignItems = "center", width = "100%",
-                children = {
-                    UI.Label { text = "每日委托", fontSize = 14, fontColor = C.gold },
-                    UI.Label { text = progressText, fontSize = 13,
-                        fontColor = done and C.green or C.textDim },
-                },
-            },
-            UI.Label { text = q.desc, fontSize = 13, fontColor = C.text, marginTop = 4 },
-            UI.Label { text = "奖励: " .. q.rewardDesc, fontSize = 12, fontColor = C.textDim, marginTop = 2 },
-        }
-        if done and not q.claimed then
-            table.insert(questChildren, UI.Button {
-                text = "领取奖励", width = "100%", height = 38, fontSize = 13, fontWeight = "bold",
-                borderRadius = 10, marginTop = 6,
-                backgroundColor = { 65, 55, 40, 255 },
-                fontColor = C.gold,
-                borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 80 },
-                onClick = function()
-                    ClaimQuestReward()
-                    BuildUI()
-                end,
-            })
-        elseif q.claimed then
-            table.insert(questChildren, UI.Label {
-                text = "已领取", fontSize = 12, fontColor = { C.green[1], C.green[2], C.green[3], 180 },
-                marginTop = 4, textAlign = "center",
-            })
-        end
-        questPanel = UI.Panel {
-            width = "100%", paddingHorizontal = 12, paddingVertical = 10,
-            backgroundColor = C.cardAlt, borderRadius = 12,
-            borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 40 },
-            gap = 2, children = questChildren,
-        }
-    end
-
-    -- ── 2) 结束今天（始终醒目：橙色底 + 白色粗体，最突出按钮） ──
-    local endDayBtn = UI.Button {
-        text = noAP and "行动点已用完，结束今天" or "结束今天",
-        width = "100%", height = 56, fontSize = 20, fontWeight = "bold", borderRadius = 12,
-        backgroundColor = C.accent,
-        fontColor = C.text,
-        borderWidth = 0,
-        onClick = function()
-            -- 过场动画期间禁止操作，防止重复触发 EndDay 导致黑屏
-            if transition_.active then return end
-            PlaySFX("click")
-            local ok, err = pcall(EndDay)
-            if not ok then
-                log:Write(LOG_ERROR, "[EndDay] crashed: " .. tostring(err))
-                currentPhase_ = PHASE_MANAGE
-                pcall(BuildUI)
-            end
-        end,
-    }
-
-    -- ── 3) 高频操作：2x2 网格（48%宽·64px·橙色边框·价格第二行） ──
-    local gridRow1 = {}
-    table.insert(gridRow1, GridBtn {
-        title = "逛集市", price = "$50",
-        disabled = noAP or playerData_.money < 50,
-        onClick = function() DoVisitMarket() end,
-    })
-    table.insert(gridRow1, GridBtn {
-        title = "贴传单", price = "$30",
-        disabled = noAP or playerData_.money < 30,
-        onClick = function() DoPostFlyers() end,
-    })
-
-    local gridRow2 = {}
-    if #CANDIDATE_POOL > 0 then
-        local isFull = #teamMembers_ >= 5
-        table.insert(gridRow2, GridBtn {
-            title = isFull and "替换队员" or "招募队员", price = "$200",
-            disabled = noAP or playerData_.money < 200,
-            onClick = function() ScoutRecruit() end,
-        })
-    end
-    table.insert(gridRow2, GridBtn {
-        title = friendlyMatchToday_ and "比赛(已赛)" or "比赛",
-        disabled = noAP or #teamMembers_ < 2 or friendlyMatchToday_,
-        onClick = function()
-            matchTierSelect_ = not matchTierSelect_
-            PlaySFX("click")
-            BuildUI()
-        end,
-    })
-    if #gridRow2 < 2 then
-        table.insert(gridRow2, 1, UI.Panel { width = "48%" })
-    end
-
-    local gridPanel = UI.Panel {
-        width = "100%", gap = 8,
-        children = {
-            UI.Panel { width = "100%", flexDirection = "row", gap = 8, justifyContent = "space-between", children = gridRow1 },
-            UI.Panel { width = "100%", flexDirection = "row", gap = 8, justifyContent = "space-between", children = gridRow2 },
-        },
-    }
-
-    -- ── 3.5) 比赛等级选择面板 ──
-    local tierPanel = nil
-    if matchTierSelect_ and not friendlyMatchToday_ and not noAP and #teamMembers_ >= 2 then
-        local tierBtns = {}
-        local tw = playerData_.tierWins or { 0, 0, 0 }
-        for i, tier in ipairs(MATCH_TIERS) do
-            local unlocked = tier.unlock()
-            local canAfford = playerData_.money >= tier.cost
-            local winsText = tw[i] and tw[i] > 0 and (" (" .. tw[i] .. "胜)") or ""
-            if unlocked then
-                table.insert(tierBtns, ActionBtn {
-                    text = tier.name .. " $" .. tier.cost .. winsText,
-                    borderColor = { C.accent[1], C.accent[2], C.accent[3], 160 },
-                    disabled = not canAfford,
-                    onClick = function()
-                        matchTierSelect_ = false
-                        pendingMatchTier_ = i
-                        matchGameSelect_ = true
-                        PlaySFX("click")
-                        BuildUI()
-                    end,
-                })
-            else
-                table.insert(tierBtns, ActionBtn {
-                    text = "" .. tier.unlockDesc,
-                    disabled = true,
-                })
-            end
-        end
-        -- 多级锦标赛入口（第三章完成后解锁）
-        if chaptersRead_[3] then
-            local tWinsMap = playerData_.tournamentTierWins or {}
-            table.insert(tierBtns, UI.Panel { height = 2, width = "90%", backgroundColor = { 220, 165, 30, 100 } })
-            table.insert(tierBtns, UI.Label { text = "── 锦标赛 ──", fontSize = 12, fontColor = C.gold, textAlign = "center" })
-            for ti, tt in ipairs(TOURNAMENT_TIERS) do
-                local prevOk = (tt.prevWinReq == nil) or ((tWinsMap[tt.prevWinReq] or 0) >= 1)
-                local repOk = playerData_.reputation >= tt.repReq
-                local teamOk = #teamMembers_ >= tt.teamReq
-                local powerOk = GetTeamPower() >= tt.powerReq
-                local canAffordT = playerData_.money >= tt.cost
-                local unlocked = prevOk and repOk and teamOk and powerOk
-                local myWins = tWinsMap[tt.id] or 0
-                local record = myWins > 0 and (" ×" .. myWins) or ""
-                if unlocked then
-                    local borderColors = {
-                        { 100, 180, 255, 80 }, { C.accent[1], C.accent[2], C.accent[3], 100 },
-                        { 255, 210, 70, 120 }, { 255, 80, 80, 150 },
-                    }
-                    table.insert(tierBtns, ActionBtn {
-                        text = tt.name .. " $" .. tt.cost .. record,
-                        borderColor = { C.accent[1], C.accent[2], C.accent[3], 120 },
-                        disabled = not canAffordT,
-                        onClick = function()
-                            matchTierSelect_ = false
-                            PlaySFX("click")
-                            playerData_.money = playerData_.money - tt.cost
-                            isFriendlyMatch_ = false
-                            currentTournamentTier_ = ti
-                            matchGameType_ = nil
-                            -- 深拷贝对手列表
-                            matchOpponents_ = {}
-                            for _, opp in ipairs(tt.opponents) do
-                                table.insert(matchOpponents_, { name = opp.name, power = opp.power, style = opp.style, emoji = opp.emoji, boss = opp.boss })
-                            end
-                            matchRound_ = 0; matchWins_ = 0; matchLog_ = {}; matchPhase_ = "intro"
-                            PlayBGM("match")
-                            StartTransition(tt.transition.title, tt.transition.sub, function()
-                                currentPhase_ = PHASE_MATCH; BuildUI()
-                            end)
-                        end,
-                    })
-                else
-                    -- 显示锁定原因
-                    local reasons = {}
-                    if not prevOk then table.insert(reasons, "需先夺冠上一级") end
-                    if not repOk then table.insert(reasons, "声望≥" .. tt.repReq) end
-                    if not teamOk then table.insert(reasons, tt.teamReq .. "名队员") end
-                    if not powerOk then table.insert(reasons, "战力≥" .. tt.powerReq) end
-                    table.insert(tierBtns, ActionBtn {
-                        text = "" .. tt.name .. " (" .. table.concat(reasons, ", ") .. ")",
-                        disabled = true,
-                    })
-                end
-            end
-        end
-        table.insert(tierBtns, ActionBtn {
-            text = "← 返回", variant = "secondary",
-            onClick = function() matchTierSelect_ = false; PlaySFX("click"); BuildUI() end,
-        })
-        tierPanel = UI.Panel {
-            width = "100%", padding = 8, gap = 6,
-            backgroundColor = C.cardAlt, borderRadius = 10,
-            borderWidth = 1, borderColor = { 240, 180, 50, 40 },
-            children = {
-                UI.Label { text = "选择比赛等级", fontSize = 13, fontColor = C.gold },
-                table.unpack(tierBtns),
-            },
-        }
-    end
-
-    -- ── 3.6) 游戏选择面板 ──
-    local gameSelectPanel = nil
-    if matchGameSelect_ and pendingMatchTier_ then
-        local gameBtns = {}
-        for _, gt in ipairs(MATCH_GAME_TYPES) do
-            local modInfo = ""
-            if gt.powerMod ~= 1.0 then
-                modInfo = modInfo .. (gt.powerMod > 1.0 and " 战力↑" or " 战力↓")
-            end
-            if gt.rewardMod ~= 1.0 then
-                modInfo = modInfo .. (gt.rewardMod > 1.0 and " 奖励↑" or " 奖励↓")
-            end
-            table.insert(gameBtns, ActionBtn {
-                text = gt.name .. modInfo,
-                onClick = function()
-                    matchGameType_ = gt
-                    matchGameSelect_ = false
-                    PlaySFX("click")
-                    DoHostTournament(pendingMatchTier_)
-                end,
-            })
-        end
-        table.insert(gameBtns, UI.Label {
-            text = "选择参赛游戏类型，不同游戏有不同战力和奖励修正",
-            fontSize = 10, fontColor = C.textDim, textAlign = "center",
-        })
-        table.insert(gameBtns, ActionBtn {
-            text = "← 返回选等级", variant = "secondary",
-            onClick = function()
-                matchGameSelect_ = false
-                pendingMatchTier_ = nil
-                matchTierSelect_ = true
-                PlaySFX("click")
-                BuildUI()
-            end,
-        })
-        gameSelectPanel = UI.Panel {
-            width = "100%", padding = 8, gap = 6,
-            backgroundColor = C.cardAlt, borderRadius = 10,
-            borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 60 },
-            children = {
-                UI.Label { text = "选择比赛游戏", fontSize = 13, fontColor = C.accent },
-                table.unpack(gameBtns),
-            },
-        }
-    end
-
-    -- ── 3.8) 网吧实况（免费查看，不消耗行动点） ──
-    local cafePanel = nil
-    do
-        GenerateDailyCafeEvents()
-        local pendingCafe = pendingCafeCount_ or 0
-        local totalCafe = cafeEvents_ and #cafeEvents_ or 0
-        if cafeViewOpen_ then
-            local ok, result = pcall(BuildCafeInlinePanel)
-            cafePanel = ok and result or nil
-        elseif totalCafe > 0 or pendingCafe > 0 then
-            local btnText = "网吧实况"
-            if pendingCafe > 0 then
-                btnText = btnText .. "（" .. pendingCafe .. "件待处理）"
-            else
-                btnText = btnText .. "（" .. totalCafe .. "件）"
-            end
-            cafePanel = UI.Button {
-                text = btnText,
-                width = "100%", height = 44, fontSize = 14, fontWeight = "bold", borderRadius = 10,
-                backgroundColor = C.card,
-                fontColor = pendingCafe > 0 and C.gold or C.textDim,
-                borderWidth = 1.5,
-                borderColor = pendingCafe > 0 and { C.accent[1], C.accent[2], C.accent[3], 180 } or { C.border[1], C.border[2], C.border[3], 120 },
-                onClick = function()
-                    cafeViewOpen_ = true
-                    AutoResolveCafeEvents()
-                    PlaySFX("click")
-                    BuildUI()
-                end,
-            }
-        end
-    end
-
-    -- ── 4) 条件性行动（按类别分组） ──
-
-    -- ── 4a) 设备与维护 ──
-    local maintActions = {}
-    -- 买燃油（有发电机时显示）
-    local genLv = playerData_.generatorLevel or 0
-    if genLv > 0 then
-        local fuel = playerData_.fuel or 0
-        local cap = playerData_.fuelCapacity or 20
-        local fuelCost = 8 * (cap - fuel)  -- 按缺量购买，每升$8
-        if fuel < cap then
-            fuelCost = math.min(fuelCost, math.max(30, fuelCost))  -- 最低$30起购
-            local buyAmount = cap - fuel
-            table.insert(maintActions, ActionBtn {
-                text = "买燃油 +" .. buyAmount .. "L $" .. fuelCost .. " (" .. fuel .. "/" .. cap .. "L)",
-                disabled = playerData_.money < fuelCost,
-                onClick = function() DoBuyFuel() end,
-            })
-        else
-            table.insert(maintActions, UI.Label {
-                text = "燃油已满 " .. fuel .. "/" .. cap .. "L", fontSize = 13, fontColor = C.green,
-            })
-        end
-    end
-    -- 维修设备
-    local cond = playerData_.equipCondition or 100
-    if cond < 95 then
-        local repairCost = 50 + playerData_.computers * 10
-        local condColor = cond <= 30 and C.red or (cond <= 50 and C.gold or C.text)
-        table.insert(maintActions, ActionBtn {
-            text = "维修设备 $" .. repairCost .. " (" .. string.format("%.1f", cond) .. "%)",
-            disabled = noAP or playerData_.money < repairCost,
-            onClick = function() DoRepairEquipment() end,
-        })
-        -- 广告：免费维修
-        if AdManager.CanWatch("free_repair", playerData_.day) then
-            table.insert(maintActions, AdManager.AdButton {
-                sceneId = "free_repair", day = playerData_.day,
-                text = "看视频免费维修 省$" .. repairCost,
-                height = 38, fontSize = 12,
-                onReward = function()
-                    local before = playerData_.equipCondition or 0
-                    playerData_.equipCondition = math.min(100, before + 30)
-                    AddLog("🎬 赞助商派技术团队免费维护！" .. before .. "%→" .. playerData_.equipCondition .. "%")
-                    BuildUI()
-                end,
-            })
-        end
-    end
-
-    -- ── 4b) 副业赚钱 ──
-    local sideJobActions = {}
-    -- 手机维修（随时可做）
-    table.insert(sideJobActions, ActionBtn {
-        text = "修手机赚外快 AP1",
-        disabled = noAP,
-        onClick = function() DoPhoneRepair() end,
-    })
-    -- 代练服务（有队员时显示）
-    if #teamMembers_ >= 1 then
-        table.insert(sideJobActions, ActionBtn {
-            text = "代练服务 AP1",
-            disabled = noAP,
-            onClick = function() DoBoostingService() end,
-        })
-    end
-    -- 直播跑刀三角洲
-    if #teamMembers_ >= 2 and playerData_.netSpeed >= 2 then
-        table.insert(sideJobActions, ActionBtn {
-            text = "直播跑刀三角洲 AP1",
-            disabled = noAP,
-            onClick = function() DoStreamDeltaForce() end,
-        })
-    end
-    -- 网吧包场（3台电脑以上）
-    if playerData_.computers >= 4 then
-        table.insert(sideJobActions, ActionBtn {
-            text = "接包场活动 AP1",
-            disabled = noAP,
-            onClick = function() DoCafeRental() end,
-        })
-    end
-    -- 二手市场（第7天后解锁）
-    if playerData_.day >= 7 then
-        table.insert(sideJobActions, ActionBtn {
-            text = "逛二手淘宝 AP1",
-            disabled = noAP or playerData_.money < 50,
-            onClick = function() DoSecondHandMarket() end,
-        })
-    end
-
-    -- ── 4c) 团队与社交 ──
-    local socialActions = {}
-    if #teamMembers_ > 0 then
-        table.insert(socialActions, ActionBtn {
-            text = "请队员吃烤肉 ($60) AP1",
-            disabled = noAP or playerData_.money < 60,
-            onClick = function() DoTeamBBQ() end,
-        })
-    end
-    -- 广告：免费招募（有候选人时显示，满员时变为免费替换）
-    if #CANDIDATE_POOL > 0 and AdManager.CanWatch("recruit_discount", playerData_.day) then
-        local adLabel = #teamMembers_ >= 5 and "看视频免费替换队员（省$200）" or "看视频免费招募一次（省$200）"
-        table.insert(socialActions, AdManager.AdButton {
-            sceneId = "recruit_discount", day = playerData_.day,
-            text = adLabel,
-            height = 38, fontSize = 12,
-            onReward = function()
-                playerData_.actionPoints = playerData_.actionPoints + 1  -- 补回行动点
-                AddLog("🎬 赞助商赞助了招募费用！这次找人不花钱！")
-                ScoutRecruit()
-            end,
-        })
-    end
-    -- 广告：媒体采访声望+20
-    if AdManager.CanWatch("reputation_ad", playerData_.day) then
-        table.insert(socialActions, AdManager.AdButton {
-            sceneId = "reputation_ad", day = playerData_.day,
-            text = "接受媒体采访 声望+20",
-            height = 38, fontSize = 12,
-            onReward = function()
-                playerData_.reputation = playerData_.reputation + 20
-                AddLog("🎬 赞助商安排了媒体采访！你的网吧故事登上了当地报纸。声望+20")
-                BuildUI()
-            end,
-        })
-    end
-
-    -- ── 4d) 扩张经营 ──
-    local expandActions = {}
-    -- 借钱
-    if playerData_.money < 300 and (playerData_.debt or 0) < 500 then
-        local alreadyBorrowed = playerData_.debtDay == playerData_.day
-        table.insert(expandActions, ActionBtn {
-            text = alreadyBorrowed and "找Mama B借钱 (今日已借)" or "找Mama B借钱 ($300)",
-            disabled = alreadyBorrowed,
-            onClick = function() DoBorrowMoney() end,
-        })
-    end
-    if (playerData_.debt or 0) > 0 then
-        table.insert(expandActions, UI.Label {
-            text = "欠款: $" .. playerData_.debt .. " (每日自动还30%余额)",
-            fontSize = 14, fontColor = C.red, paddingLeft = 4,
-        })
-    end
-
-    -- ── 4e) 黄金交易 ──
-    local goldPanel = nil
-    -- 黄金交易（第10天后解锁）
-    if playerData_.day >= 10 then
-        local goldPrice = GetGoldPrice()
-        local curGold = playerData_.goldOunces or 0
-        local goldVal = curGold > 0 and math.floor(curGold * goldPrice) or 0
-        -- 金价趋势指示
-        local prevPrice = GetGoldPrice((playerData_.day or 1) - 1)
-        local trend = goldPrice > prevPrice and "↑" or (goldPrice < prevPrice and "↓" or "→")
-        goldPanel = UI.Panel {
-            width = "100%", padding = 8, gap = 4,
-            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 40 }, borderRadius = 10,
-            borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 120 },
-            children = {
-                UI.Label {
-                    text = trend .. " 金价: $" .. goldPrice .. "/oz" ..
-                        (curGold > 0 and ("  |  持仓: " .. string.format("%.1f", curGold) .. "oz ≈ $" .. goldVal) or ""),
-                    fontSize = 13, fontColor = { 255, 215, 0, 255 }, width = "100%",
-                },
-                -- 快捷买入按钮组
-                UI.Panel {
-                    width = "100%", flexDirection = "row", gap = 4, flexWrap = "wrap",
-                    children = (function()
-                        local buyBtns = {}
-                        local units = { 0.1, 0.5, 1.0 }
-                        for _, u in ipairs(units) do
-                            local cost = math.floor(goldPrice * u)
-                            table.insert(buyBtns, UI.Button {
-                                text = "买" .. u .. "oz\n$" .. cost,
-                                flex = 1, height = 40, fontSize = 11, borderRadius = 8,
-                                backgroundColor = playerData_.money >= cost and { 60, 45, 20, 220 } or { 50, 45, 40, 200 },
-                                fontColor = playerData_.money >= cost and { 255, 230, 150, 255 } or { 130, 115, 100, 180 },
-                                borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 60 },
-                                disabled = playerData_.money < cost,
-                                onClick = function()
-                                    if playerData_.money >= cost then
-                                        playerData_.money = playerData_.money - cost
-                                        local actual = u
-                                        if (playerData_.goldTradeBonus or 0) > 0 then
-                                            actual = math.floor((u * 1.2) * 10) / 10
-                                            playerData_.goldTradeBonus = playerData_.goldTradeBonus - 1
-                                            AddLog("🎫 使用黄金交易优惠券！额外获得20%黄金！")
-                                        end
-                                        playerData_.goldOunces = (playerData_.goldOunces or 0) + actual
-                                        AddLog("🥇 买入黄金 " .. actual .. "oz @ $" .. goldPrice .. "/oz，花费$" .. cost)
-                                        PlaySFX("upgrade"); BuildUI()
-                                    end
-                                end,
-                            })
-                        end
-                        -- "全部买入"按钮
-                        local maxBuy = math.floor(playerData_.money / goldPrice * 10) / 10  -- 精确到0.1
-                        if maxBuy >= 0.1 then
-                            local maxCost = math.floor(goldPrice * maxBuy)
-                            table.insert(buyBtns, UI.Button {
-                                text = "全买\n" .. maxBuy .. "oz",
-                                flex = 1, height = 40, fontSize = 11, borderRadius = 8,
-                                backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 },
-                                fontColor = { 255, 230, 150, 255 },
-                                borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 80 },
-                                onClick = function()
-                                    if playerData_.money >= maxCost then
-                                        playerData_.money = playerData_.money - maxCost
-                                        local actual = maxBuy
-                                        if (playerData_.goldTradeBonus or 0) > 0 then
-                                            actual = math.floor((maxBuy * 1.2) * 10) / 10
-                                            playerData_.goldTradeBonus = playerData_.goldTradeBonus - 1
-                                            AddLog("🎫 使用黄金交易优惠券！额外获得20%黄金！")
-                                        end
-                                        playerData_.goldOunces = (playerData_.goldOunces or 0) + actual
-                                        AddLog("🥇 全仓买入黄金 " .. actual .. "oz @ $" .. goldPrice .. "/oz，花费$" .. maxCost)
-                                        PlaySFX("upgrade"); BuildUI()
-                                    end
-                                end,
-                            })
-                        end
-                        return buyBtns
-                    end)(),
-                },
-                -- 快捷卖出按钮组（有持仓时显示）
-                curGold >= 0.1 and UI.Panel {
-                    width = "100%", flexDirection = "row", gap = 4, flexWrap = "wrap",
-                    children = (function()
-                        local sellBtns = {}
-                        local units = { 0.1, 0.5, 1.0 }
-                        for _, u in ipairs(units) do
-                            if curGold >= u then
-                                local income = math.floor(goldPrice * u)
-                                table.insert(sellBtns, UI.Button {
-                                    text = "卖" .. u .. "oz\n+$" .. income,
-                                    flex = 1, height = 40, fontSize = 11, borderRadius = 8,
-                                    backgroundColor = { C.green[1], C.green[2], C.green[3], 30 },
-                                    fontColor = { C.green[1], C.green[2], C.green[3], 255 },
-                                    borderWidth = 1, borderColor = { C.green[1], C.green[2], C.green[3], 60 },
-                                    onClick = function()
-                                        if (playerData_.goldOunces or 0) >= u then
-                                            playerData_.goldOunces = playerData_.goldOunces - u
-                                            if playerData_.goldOunces < 0.01 then playerData_.goldOunces = 0 end
-                                            local actualIncome = income
-                                            if (playerData_.goldTradeBonus or 0) > 0 then
-                                                actualIncome = math.floor(income * 1.2)
-                                                playerData_.goldTradeBonus = playerData_.goldTradeBonus - 1
-                                                AddLog("🎫 使用黄金交易优惠券！额外获得20%收入！")
-                                            end
-                                            playerData_.money = playerData_.money + actualIncome
-                                            AddLog("💵 卖出黄金 " .. u .. "oz @ $" .. goldPrice .. "/oz，收入$" .. actualIncome)
-                                            PlaySFX("click"); BuildUI()
-                                        end
-                                    end,
-                                })
-                            end
-                        end
-                        -- "全部卖出"按钮
-                        if curGold >= 0.1 then
-                            local totalIncome = math.floor(goldPrice * curGold)
-                            table.insert(sellBtns, UI.Button {
-                                text = "全卖\n+$" .. totalIncome,
-                                flex = 1, height = 40, fontSize = 11, borderRadius = 8,
-                                backgroundColor = { C.green[1], C.green[2], C.green[3], 30 },
-                                fontColor = { C.green[1], C.green[2], C.green[3], 255 },
-                                borderWidth = 1, borderColor = { C.green[1], C.green[2], C.green[3], 80 },
-                                onClick = function()
-                                    local sellAll = playerData_.goldOunces or 0
-                                    if sellAll >= 0.1 then
-                                        local income = math.floor(goldPrice * sellAll)
-                                        if (playerData_.goldTradeBonus or 0) > 0 then
-                                            income = math.floor(income * 1.2)
-                                            playerData_.goldTradeBonus = playerData_.goldTradeBonus - 1
-                                            AddLog("🎫 使用黄金交易优惠券！额外获得20%收入！")
-                                        end
-                                        playerData_.goldOunces = 0
-                                        playerData_.money = playerData_.money + income
-                                        AddLog("💵 清仓卖出黄金 " .. string.format("%.1f", sellAll) .. "oz @ $" .. goldPrice .. "/oz，收入$" .. income)
-                                        PlaySFX("click"); BuildUI()
-                                    end
-                                end,
-                            })
-                        end
-                        return sellBtns
-                    end)(),
-                } or nil,
-                -- 黄金消费玩法（第20天后+有黄金持仓时解锁）
-                (playerData_.day >= 20 and curGold >= 0.5) and UI.Panel {
-                    width = "100%", gap = 4, paddingTop = 4,
-                    children = {
-                        UI.Label { text = "── 黄金投资 ──", fontSize = 11, fontColor = { 255, 215, 0, 180 }, textAlign = "center", width = "100%" },
-                        -- 黄金装饰：花0.5oz，永久每日声望+3
-                        (not playerData_.goldDecor) and UI.Button {
-                            text = "黄金奖杯装饰 (0.5oz) → 每日声望+3",
-                            width = "100%", height = 38, fontSize = 12, borderRadius = 8,
-                            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 }, fontColor = { 255, 230, 150, 255 },
-                            borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 80 },
-                            disabled = curGold < 0.5,
-                            onClick = function()
-                                if (playerData_.goldOunces or 0) >= 0.5 then
-                                    playerData_.goldOunces = playerData_.goldOunces - 0.5
-                                    playerData_.goldDecor = true
-                                    AddLog("🏆 用0.5盎司黄金打造了一座闪闪发光的奖杯！摆在柜台上，每天都能吸引更多客人。（每日声望+3）")
-                                    PlaySFX("upgrade"); BuildUI()
-                                end
-                            end,
-                        } or UI.Label { text = "黄金奖杯已展示（每日声望+3）", fontSize = 11, fontColor = C.textDim, paddingLeft = 4 },
-                        -- 黄金键帽：花1oz，永久战队+15战力
-                        playerData_.goldKeycaps and UI.Label { text = "黄金键帽已装备（战队+15战力）", fontSize = 11, fontColor = C.textDim, paddingLeft = 4 }
-                        or UI.Button {
-                            text = "黄金键帽套装 (1oz) → 战队战力+15",
-                            width = "100%", height = 38, fontSize = 12, borderRadius = 8,
-                            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 }, fontColor = { 255, 230, 150, 255 },
-                            borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 80 },
-                            disabled = curGold < 1.0,
-                            onClick = function()
-                                if (playerData_.goldOunces or 0) >= 1.0 then
-                                    playerData_.goldOunces = playerData_.goldOunces - 1.0
-                                    playerData_.goldKeycaps = true
-                                    AddLog("⌨️ 从拉各斯定制了一套纯金键帽！队员们爱不释手，手感和气场直接拉满。（战队永久+15战力）")
-                                    PlaySFX("upgrade"); BuildUI()
-                                end
-                            end,
-                        },
-                        -- 黄金赞助：花2oz，karma+2 声望+50（可重复）
-                        UI.Button {
-                            text = "赞助社区电竞赛 (2oz) → 声望+50 karma+2",
-                            width = "100%", height = 38, fontSize = 12, borderRadius = 8,
-                            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 }, fontColor = { 255, 230, 150, 255 },
-                            borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 80 },
-                            disabled = curGold < 2.0,
-                            onClick = function()
-                                if (playerData_.goldOunces or 0) >= 2.0 then
-                                    playerData_.goldOunces = playerData_.goldOunces - 2.0
-                                    if playerData_.goldOunces < 0.01 then playerData_.goldOunces = 0 end
-                                    playerData_.reputation = playerData_.reputation + 50
-                                    playerData_.karma = playerData_.karma + 2
-                                    AddLog("🤝 你用黄金赞助了一场社区电竞赛事！全城的年轻人都来参加了。你的名字被印在了奖杯上。（声望+50，karma+2）")
-                                    PlaySFX("upgrade"); BuildUI()
-                                end
-                            end,
-                        },
-                        -- 黄金保险箱：花1.5oz，贬值/政变现金损失减半
-                        playerData_.goldSafe and UI.Label { text = "黄金保险箱已启用（损失减半）", fontSize = 11, fontColor = C.textDim, paddingLeft = 4 }
-                        or UI.Button {
-                            text = "黄金保险箱 (1.5oz) → 贬值/政变损失减半",
-                            width = "100%", height = 38, fontSize = 12, borderRadius = 8,
-                            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 }, fontColor = { 255, 230, 150, 255 },
-                            borderWidth = 1, borderColor = { C.goldDim[1], C.goldDim[2], C.goldDim[3], 80 },
-                            disabled = curGold < 1.5,
-                            onClick = function()
-                                if (playerData_.goldOunces or 0) >= 1.5 then
-                                    playerData_.goldOunces = playerData_.goldOunces - 1.5
-                                    if playerData_.goldOunces < 0.01 then playerData_.goldOunces = 0 end
-                                    playerData_.goldSafe = true
-                                    AddLog("🔐 你在黑市搞到了一个瑞士产黄金保险箱！把最重要的现金锁在里面，再也不怕贬值和政变了。（贬值/政变现金损失减半）")
-                                    PlaySFX("upgrade"); BuildUI()
-                                end
-                            end,
-                        },
-                        -- 黄金VIP卡：花2.5oz，永久每日收入+15%
-                        playerData_.goldVIP and UI.Label { text = "黄金VIP已激活（收入+15%）", fontSize = 11, fontColor = C.textDim, paddingLeft = 4 }
-                        or UI.Button {
-                            text = "黄金VIP卡 (2.5oz) → 每日收入+15%",
-                            width = "100%", height = 38, fontSize = 12, borderRadius = 8,
-                            backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 30 }, fontColor = { 255, 230, 150, 255 },
-                            borderWidth = 1, borderColor = { C.goldDim[1], C.goldDim[2], C.goldDim[3], 80 },
-                            disabled = curGold < 2.5,
-                            onClick = function()
-                                if (playerData_.goldOunces or 0) >= 2.5 then
-                                    playerData_.goldOunces = playerData_.goldOunces - 2.5
-                                    if playerData_.goldOunces < 0.01 then playerData_.goldOunces = 0 end
-                                    playerData_.goldVIP = true
-                                    AddLog("💳 一张闪闪发光的黄金VIP卡！凭此卡在拉各斯商业圈享受顶级待遇，合作伙伴们纷纷主动上门。（每日收入永久+15%）")
-                                    PlaySFX("upgrade"); BuildUI()
-                                end
-                            end,
-                        },
-                    },
-                } or nil,
-                -- 💰 看广告 → 下次黄金买卖获得额外收益
-                AdManager.AdButton {
-                    sceneId = "gold_trade_bonus", day = playerData_.day,
-                    text = "看广告 → 下次黄金交易额外+20%收益",
-                    width = "100%", height = 36, fontSize = 12, borderRadius = 8,
-                    backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 25 }, fontColor = { 255, 220, 100, 255 },
-                    borderWidth = 1, borderColor = { C.goldDim[1], C.goldDim[2], C.goldDim[3], 100 },
-                    onReward = function()
-                        playerData_.goldTradeBonus = (playerData_.goldTradeBonus or 0) + 1
-                        playerData_.questGoldTradeCount = (playerData_.questGoldTradeCount or 0) + 1
-                        AddLog("📺 赞助商赠送黄金交易优惠券！下次买入/卖出黄金时额外获得20%收益！")
-                        PlaySFX("coin")
-                        BuildUI()
-                    end,
-                },
-            },
-        }
-    end
-    -- 开分店（资金≥8000 + 分店<3）
-    local branchCount = #(playerData_.branches or {})
-    local nextBranchCost = BRANCH_COSTS[branchCount + 1] or 9000
-    local canBranch = playerData_.money >= 8000 and branchCount < 3
-    if canBranch and branchOpenStep_ == 0 then
-        table.insert(expandActions, ActionBtn {
-            text = "开分店 $" .. nextBranchCost .. " (第" .. (branchCount + 1) .. "家)",
-            disabled = playerData_.money < nextBranchCost,
-            onClick = function()
-                branchOpenLocOpts_ = RollBranchLocationOptions()
-                branchOpenStep_ = 1
-                PlaySFX("click")
-                BuildUI()
-            end,
-        })
-    end
-    -- 分店开设流程：步骤1-选地点
-    if branchOpenStep_ == 1 and branchOpenLocOpts_ then
-        local locBtns = {
-            PanelHeader("选择分店城市", { icon = "", color = C.gold }),
-            UI.Label { text = "在这些城市中选一个开设分店", fontSize = 12, fontColor = C.textDim, textAlign = "center", width = "100%" },
-        }
-        for _, loc in ipairs(branchOpenLocOpts_) do
-            table.insert(locBtns, UI.Button {
-                text = loc.name .. "\n" .. loc.desc .. "\n" .. loc.bonusDesc,
-                width = "100%", height = 70, fontSize = 13, borderRadius = 10,
-                backgroundColor = C.accentLight, fontColor = C.text,
-                borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 100 },
-                textAlign = "left", whiteSpace = "normal",
-                onClick = function()
-                    branchOpenSelLoc_ = loc
-                    branchOpenStep_ = 2
-                    PlaySFX("click")
-                    BuildUI()
-                end,
-            })
-        end
-        table.insert(locBtns, UI.Button {
-            text = "← 取消", width = "100%", height = 36, fontSize = 13, borderRadius = 8,
-            variant = "secondary",
-            onClick = function() branchOpenStep_ = 0; PlaySFX("click"); BuildUI() end,
-        })
-        table.insert(expandActions, UI.Panel {
-            width = "100%", padding = 10, gap = 8,
-            backgroundColor = C.accentLight, borderRadius = 12,
-            borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 60 },
-            children = locBtns,
-        })
-    end
-    -- 分店开设流程：步骤2-选游戏
-    if branchOpenStep_ == 2 and branchOpenSelLoc_ then
-        local gameBtns = {
-            PanelHeader("选择主营游戏", { icon = nil, color = C.gold }),
-            UI.Label { text = branchOpenSelLoc_.name .. " 分店 · 选择特色游戏", fontSize = 12, fontColor = C.accent, textAlign = "center", width = "100%" },
-        }
-        for _, game in ipairs(BRANCH_GAMES) do
-            table.insert(gameBtns, UI.Button {
-                text = game.name .. " — " .. game.desc .. "\n" .. game.bonusDesc,
-                width = "100%", height = 56, fontSize = 13, borderRadius = 10,
-                backgroundColor = C.cardAlt, fontColor = C.text,
-                borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 80 },
-                textAlign = "left", whiteSpace = "normal",
-                onClick = function()
-                    PlaySFX("upgrade")
-                    DoOpenBranch(branchOpenSelLoc_, game)
-                end,
-            })
-        end
-        table.insert(gameBtns, UI.Button {
-            text = "← 重选城市", width = "100%", height = 36, fontSize = 13, borderRadius = 8,
-            variant = "secondary",
-            onClick = function() branchOpenStep_ = 1; PlaySFX("click"); BuildUI() end,
-        })
-        table.insert(expandActions, UI.Panel {
-            width = "100%", padding = 10, gap = 8,
-            backgroundColor = C.cardAlt, borderRadius = 12,
-            borderWidth = 1, borderColor = { C.accent[1], C.accent[2], C.accent[3], 60 },
-            children = gameBtns,
-        })
-    end
-
-    -- ── 5) 章节推进（放在"结束今天"下方，提高感知度） ──
-    local chapterBtn = nil
-    if hasNext then
-        if canAdv then
-            chapterBtn = UI.Button {
-                text = (CHAPTERS[nextCh] and CHAPTERS[nextCh].title or "下一章") .. " →",
-                width = "100%", height = 48, fontSize = 15, fontWeight = "bold", borderRadius = 10,
-                variant = "primary",
-                onClick = function() StartChapterWithTransition(nextCh) end,
-            }
-        else
-            chapterBtn = UI.Panel {
-                width = "100%", paddingHorizontal = 12, paddingVertical = 8,
-                backgroundColor = { C.border[1], C.border[2], C.border[3], 60 },
-                borderRadius = 10, alignItems = "center",
-                children = {
-                    UI.Label { text = advReason, fontSize = 13, fontColor = C.textDim },
-                },
-            }
-        end
-    else
-        chapterBtn = UI.Panel {
-            width = "100%", paddingHorizontal = 12, paddingVertical = 8,
-            backgroundColor = { C.green[1], C.green[2], C.green[3], 25 },
-            borderRadius = 10, alignItems = "center",
-            children = {
-                UI.Label { text = "所有章节已完成", fontSize = 13, fontColor = C.green },
-            },
-        }
-    end
-
-    -- （已精简：移除夜间加练和日结奖金广告，只保留翻倍收入和额外AP，减少广告干扰）
-
-    -- ── 辅助：分区标题 ──
-    local function SectionTitle(icon, title)
-        return UI.Panel {
-            width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
-            paddingTop = 4, paddingBottom = 2,
-            children = {
-                UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 30 }, flex = 1 },
-                UI.Label { text = icon .. " " .. title, fontSize = 12, fontColor = C.textDim, flexShrink = 0 },
-                UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 30 }, flex = 1 },
-            },
-        }
-    end
-
-    -- ── 辅助：分区容器 ──
-    local function SectionPanel(items)
-        if #items == 0 then return nil end
-        return UI.Panel {
-            width = "100%", gap = 6,
-            children = items,
-        }
-    end
-
-    -- ── 组装卡片（分区清晰，结构明确） ──
-    local cardChildren = { header }
-
-    -- 广告区
-    if adDoubleIncome then table.insert(cardChildren, adDoubleIncome) end
-    if adExtraAP then table.insert(cardChildren, adExtraAP) end
-
-    -- 章节 + 委托
-    if chapterBtn then table.insert(cardChildren, chapterBtn) end
-    if questPanel then table.insert(cardChildren, questPanel) end
-
-    -- 核心经营（集市/传单/招募/比赛）
-    table.insert(cardChildren, gridPanel)
-    if tierPanel then table.insert(cardChildren, tierPanel) end
-    if gameSelectPanel then table.insert(cardChildren, gameSelectPanel) end
-
-    -- 网吧实况
-    if cafePanel then table.insert(cardChildren, cafePanel) end
-
-    -- 设备维护区块
-    if #maintActions > 0 then
-        table.insert(cardChildren, SectionTitle("🔧", "设备维护"))
-        local mp = SectionPanel(maintActions)
-        if mp then table.insert(cardChildren, mp) end
-    end
-
-    -- 副业赚钱区块
-    if #sideJobActions > 0 then
-        table.insert(cardChildren, SectionTitle("💼", "副业赚钱"))
-        local sp = SectionPanel(sideJobActions)
-        if sp then table.insert(cardChildren, sp) end
-    end
-
-    -- 团队与社交区块
-    if #socialActions > 0 then
-        table.insert(cardChildren, SectionTitle("🤝", "团队社交"))
-        local sop = SectionPanel(socialActions)
-        if sop then table.insert(cardChildren, sop) end
-    end
-
-    -- 黄金交易区块
-    if goldPanel then
-        table.insert(cardChildren, SectionTitle("🥇", "黄金交易"))
-        table.insert(cardChildren, goldPanel)
-    end
-
-    -- 扩张经营区块
-    if #expandActions > 0 then
-        table.insert(cardChildren, SectionTitle("🏗️", "扩张经营"))
-        local ep = SectionPanel(expandActions)
-        if ep then table.insert(cardChildren, ep) end
-    end
-
-    -- 结束今天（始终在最底部）
-    table.insert(cardChildren, endDayBtn)
-
-    return UI.Panel {
-        width = "100%", padding = 12, gap = 10,
-        backgroundColor = C.card, borderRadius = 14, borderWidth = 1, borderColor = C.border,
-        children = cardChildren,
-    }
-end
-
-function GetUpgradeCur(key)
-    if key == "computer" then return playerData_.computers - 3
-    elseif key == "chair" then return playerData_.chairLevel - 1
-    elseif key == "net" then return playerData_.netSpeed - 1
-    elseif key == "ac" then return playerData_.acLevel
-    elseif key == "solar" then return playerData_.solarLevel
-    elseif key == "food" then return playerData_.foodShop
-    elseif key == "deco" then return playerData_.decoLevel
-    elseif key == "security" then return playerData_.securityLevel
-    elseif key == "generator" then return playerData_.generatorLevel or 0
-    elseif key == "well" then return playerData_.wellLevel or 0
-    elseif key == "road" then return playerData_.roadLevel or 0
-    elseif key == "coffee" then return playerData_.coffeeLevel or 0
-    elseif key == "jukebox" then return playerData_.jukeboxLevel or 0
-    end
-    return 0
-end
-
---- 构建"正在升级中"的进度卡片
-local function BuildUpgradeProgressPanel()
-    if not activeUpgrade_ then return nil end
-    local cfg = UPGRADES[activeUpgrade_]
-    if not cfg then return nil end
-    local pct = 1.0 - (upgradeTimeLeft_ / math.max(1, upgradeTotalTime_))
-    local timeStr = FormatUpgradeTime(math.max(0, upgradeTimeLeft_))
-    local canAd = AdManager.CanWatch("upgrade_skip", playerData_.day)
-    local adChildren = {}
-    if canAd then
-        table.insert(adChildren, AdManager.AdButton {
-            sceneId = "upgrade_skip", day = playerData_.day,
-            text = "看广告立即完成", width = "100%", height = 34, fontSize = 12,
-            onReward = function()
-                AddLog("📺 赞助商加速！升级立即完成！")
-                CompleteUpgrade()
-            end,
-        })
-    end
-    return UI.Panel {
-        width = "100%", padding = 10, gap = 6,
-        backgroundColor = C.cardAlt, borderRadius = 10,
-        borderWidth = 1, borderColor = C.border,
-        children = {
-            UI.Panel { flexDirection = "row", alignItems = "center", gap = 6, children = {
-                UI.Label { text = cfg.icon, fontSize = 22 },
-                UI.Panel { flex = 1, gap = 2, children = {
-                    UI.Label { text = cfg.name .. " 升级中...", fontSize = 14, fontColor = C.green, fontWeight = "bold" },
-                    UI.Label { text = cfg.levelDesc and cfg.levelDesc[GetUpgradeCur(activeUpgrade_) + 1] or "", fontSize = 11, fontColor = C.textDim, whiteSpace = "normal" },
-                }},
-                UI.Label { id = "upgrade-time-label", text = timeStr, fontSize = 16, fontColor = C.gold, fontWeight = "bold" },
-            }},
-            -- 进度条
-            UI.Panel { width = "100%", height = 8, backgroundColor = { C.border[1], C.border[2], C.border[3], 120 }, borderRadius = 4, overflow = "hidden", children = {
-                UI.Panel { id = "upgrade-progress-fill", width = math.floor(pct * 100) .. "%", height = "100%", backgroundColor = C.green, borderRadius = 4 },
-            }},
-            table.unpack(adChildren),
-        },
-    }
-end
-
---- 生成小标签 pill（图标+文字的彩色小标签）
-local function UpgradePill(icon, text, bgColor, fgColor)
-    return UI.Panel {
-        flexDirection = "row", alignItems = "center", gap = 3,
-        paddingHorizontal = 6, paddingVertical = 2,
-        backgroundColor = bgColor, borderRadius = 6,
-        children = {
-            UI.Label { text = icon, fontSize = 11 },
-            UI.Label { text = text, fontSize = 11, fontColor = fgColor, fontWeight = "bold" },
-        },
-    }
-end
-
---- 生成单个升级物品卡片
-local function BuildUpgradeItemCard(key)
-    local cfg = UPGRADES[key]
-    if not cfg then return nil end
-    local cur = GetUpgradeCur(key)
-    local nxt = cur + 1
-    local maxLevels = cfg.costs and #cfg.costs or 0
-    local maxed = nxt > maxLevels
-    local cost = not maxed and cfg.costs[nxt] or nil
-    local curDesc = cfg.levelDesc and cfg.levelDesc[cur] or nil
-    local nxtDesc = cfg.levelDesc and cfg.levelDesc[nxt] or nil
-    local isActive = activeUpgrade_ == key
-    local hasPending = activeUpgrade_ ~= nil and not isActive
-    local canAfford = cost and CanAffordCost(cost) or false
-    local coupTag = IsCoupActive() and not maxed and "[政变]" or ""
-
-    -- 等级文本 Lv.X/Max
-    local lvText = maxed and ("Lv.MAX") or ("Lv." .. cur .. "/" .. maxLevels)
-    local lvColor = maxed and C.green or C.textDim
-
-    -- 等级指示条（用小方块代替小圆点，更容易看）
-    local dots = {}
-    for i = 1, maxLevels do
-        table.insert(dots, UI.Panel {
-            width = 8, height = 4, borderRadius = 2,
-            backgroundColor = i <= cur and C.accent or C.border,
-        })
-    end
-
-    -- 描述：当前 → 下级
-    local descText
-    if maxed then
-        descText = curDesc or cfg.desc
-    elseif curDesc and nxtDesc then
-        descText = curDesc .. " → " .. nxtDesc
-    elseif nxtDesc then
-        descText = cfg.desc .. " → " .. nxtDesc
-    else
-        descText = cfg.desc
-    end
-
-    -- ── 底部操作栏 ──
-    local bottomRow = {}
-    if maxed then
-        -- 满级：只显示满级标识
-        table.insert(bottomRow, UpgradePill("", "满级", { C.green[1], C.green[2], C.green[3], 40 }, C.green))
-    elseif isActive then
-        -- 升级中
-        table.insert(bottomRow, UpgradePill("", "升级中", { C.gold[1], C.gold[2], C.gold[3], 40 }, C.gold))
-    else
-        -- 可升级：显示费用标签 + 时间标签 + 升级按钮
-        if cost then
-            local costText = FormatCostText(cost)
-            local timeText = FormatUpgradeTime(CalcUpgradeTime(cost, key))
-            table.insert(bottomRow, UpgradePill("", costText,
-                canAfford and { C.green[1], C.green[2], C.green[3], 40 } or { C.red[1], C.red[2], C.red[3], 40 },
-                canAfford and C.green or C.red))
-            table.insert(bottomRow, UpgradePill("", timeText, { C.blue[1], C.blue[2], C.blue[3], 40 }, C.blue))
-        end
-        -- 弹性占位，把按钮推到右边
-        table.insert(bottomRow, UI.Panel { flex = 1 })
-        table.insert(bottomRow, UI.Button {
-            text = coupTag .. "升级",
-            height = 28, paddingHorizontal = 16, fontSize = 12, borderRadius = 8,
-            disabled = hasPending or not canAfford,
-            onClick = function() DoUpgrade(key) end,
-        })
-    end
-
-    local borderCol = maxed and { C.border[1], C.border[2], C.border[3], 120 }
-        or isActive and { C.green[1], C.green[2], C.green[3], 180 }
-        or (IsCoupActive() and { 220, 180, 60, 160 } or C.border)
-
-    return UI.Panel {
-        width = "100%", padding = 10, gap = 5,
-        backgroundColor = isActive and C.upgrade_active or (maxed and C.upgrade_max or C.upgrade_bg),
-        borderRadius = 10, borderWidth = 1, borderColor = borderCol,
-        children = {
-            -- 第1行：名称缩写色块 + 名称 + 等级
-            UI.Panel { flexDirection = "row", alignItems = "center", width = "100%", gap = 8, children = {
-                -- 缩写色块
-                UI.Panel {
-                    width = 36, height = 36, borderRadius = 8,
-                    backgroundColor = maxed and C.green or (isActive and C.gold or C.accent),
-                    justifyContent = "center", alignItems = "center",
-                    children = { UI.Label { text = (cfg.icon ~= "" and cfg.icon) or string.sub(cfg.name, 1, 3), fontSize = (cfg.icon ~= "" and 20) or 12, fontWeight = "bold", fontColor = { 255, 255, 255, 255 } } },
-                },
-                -- 名称 + 等级条
-                UI.Panel { flex = 1, gap = 3, children = {
-                    UI.Panel { flexDirection = "row", alignItems = "center", gap = 6, children = {
-                        UI.Label { text = cfg.name, fontSize = 14, fontColor = C.text, fontWeight = "bold" },
-                        UI.Label { text = lvText, fontSize = 11, fontColor = lvColor },
-                    }},
-                    UI.Panel { flexDirection = "row", gap = 2, alignItems = "center", children = dots },
-                }},
-            }},
-            -- 第2行：描述
-            UI.Label {
-                text = descText,
-                fontSize = 11, fontColor = maxed and { 110, 190, 110, 200 } or C.textDim,
-                whiteSpace = "normal", width = "100%", paddingLeft = 2,
-            },
-            -- 第3行：费用标签 + 时间标签 + 按钮
-            UI.Panel {
-                flexDirection = "row", alignItems = "center", width = "100%", gap = 6,
-                children = bottomRow,
-            },
-        },
-    }
-end
-
---- 生成一组升级卡片
-local function BuildUpgradeGroup(keys, children)
-    for _, key in ipairs(keys) do
-        local card = BuildUpgradeItemCard(key)
-        if card then table.insert(children, card) end
-    end
-end
-
-function BuildUpgradeCard()
-    local children = {}
-
-    -- 正在升级的进度卡片（置顶）
-    local progressPanel = BuildUpgradeProgressPanel()
-    if progressPanel then
-        table.insert(children, progressPanel)
-        table.insert(children, UI.Divider { spacing = 4 })
-    end
-
-    table.insert(children, PanelHeader("升级·集市", { icon = nil, compact = true }))
-    BuildUpgradeGroup(UPGRADE_ORDER, children)
-
-    -- ── 社区投资分组 ──
-    table.insert(children, UI.Divider { spacing = 6 })
-    table.insert(children, PanelHeader("社区投资", { icon = "🏘️", compact = true, color = C.blue }))
-    BuildUpgradeGroup(UPGRADE_COMMUNITY, children)
-
-    -- ── 文化空间分组 ──
-    table.insert(children, UI.Divider { spacing = 6 })
-    table.insert(children, PanelHeader("文化空间", { icon = "🎭", compact = true, color = { 220, 140, 80, 255 } }))
-    BuildUpgradeGroup(UPGRADE_CULTURE, children)
-
-    -- 联动加成展示
-    local synergies = CalcUpgradeSynergies()
-    if #synergies > 0 then
-        table.insert(children, UI.Divider { spacing = 4 })
-        table.insert(children, PanelHeader("联动加成", { icon = "🔗", compact = true, color = C.gold }))
-        for _, s in ipairs(synergies) do
-            table.insert(children, UI.Label {
-                text = s.name, fontSize = 14, fontColor = C.green,
-            })
-        end
-    end
-    return UI.Panel {
-        width = "100%", padding = 10, gap = 6,
-        backgroundColor = C.card, borderRadius = 12, borderWidth = 1, borderColor = C.border,
-        children = children,
-    }
-end
-
-function BuildTeamCard()
-    local children = {
-        PanelHeader("战队 (" .. #teamMembers_ .. "/5)", { icon = nil, compact = true }),
-    }
-    if #teamMembers_ == 0 then
-        table.insert(children, UI.Label { text = "还没有队员\n经营网吧时会有人来找你", fontSize = 13, fontColor = C.textDim, whiteSpace = "normal" })
-    end
-    for i, m in ipairs(teamMembers_) do
-        -- 心情颜色：红(<40) 黄(40-70) 绿(>70)
-        local moodColor = m.mood > 70 and C.green or (m.mood >= 40 and C.gold or C.red)
-        local moodIcon = m.mood > 70 and "😊" or (m.mood >= 40 and "😐" or "😞")
-        -- 技能进度百分比
-        local skillPct = math.floor(math.min(SKILL_CAP, m.skill) / SKILL_CAP * 100)
-
-        table.insert(children, UI.Panel {
-            flexDirection = "row", alignItems = "center", width = "100%", gap = 6,
-            padding = 5, backgroundColor = C.cardAlt, borderRadius = 8,
-            children = {
-                m.avatar and UI.Panel {
-                    width = 36, height = 36, borderRadius = 18,
-                    backgroundImage = m.avatar, backgroundFit = "cover",
-                    borderWidth = 1, borderColor = C.accent,
-                } or UI.Label { text = m.emoji, fontSize = 18 },
-                UI.Panel { flex = 1, gap = 2, children = {
-                    UI.Label { text = m.name .. " · " .. m.trait, fontSize = 13, fontColor = C.text },
-                    UI.Panel { flexDirection = "row", gap = 6, alignItems = "center", children = {
-                        UI.Label { text = "天" .. m.talent, fontSize = 13, fontColor = C.blue },
-                        UI.Label { text = moodIcon .. m.mood, fontSize = 13, fontColor = moodColor },
-                    }},
-                    -- 技能进度条
-                    UI.Panel { flexDirection = "row", gap = 4, alignItems = "center", width = "100%", children = {
-                        UI.Label { text = "技" .. m.skill, fontSize = 13, fontColor = C.green },
-                        UI.Panel { flex = 1, height = 4, backgroundColor = { C.border[1], C.border[2], C.border[3], 120 }, borderRadius = 2, overflow = "hidden", children = {
-                            UI.Panel { width = skillPct .. "%", height = "100%", backgroundColor = C.green, borderRadius = 2 },
-                        }},
-                    }},
-                    -- 特质标签
-                    m.perk and UI.Panel { flexDirection = "row", gap = 4, alignItems = "center", children = {
-                        UI.Label { text = "✦" .. m.perk, fontSize = 11,
-                            fontColor = m.mood >= 70 and C.green or C.textDim },
-                        m.flaw and UI.Label { text = "✧" .. m.flaw, fontSize = 11,
-                            fontColor = m.mood < 40 and C.red or C.textDim } or nil,
-                    }} or nil,
-                }},
-                UI.Panel { gap = 4, alignItems = "center", children = {
-                    UI.Button { text = "练", height = 32, paddingHorizontal = 10, fontSize = 13,
-                        disabled = playerData_.actionPoints <= 0,
-                        onClick = function()
-                            StartTransition("特训时间", m.name .. " · " .. m.trait, function()
-                                StartTraining(i)
-                            end)
-                        end },
-                    UI.Button { text = dismissConfirmIdx_ == i and "确认？" or "解雇", height = 26,
-                        paddingHorizontal = 8, fontSize = 11,
-                        fontColor = dismissConfirmIdx_ == i and C.red or C.textDim,
-                        variant = "ghost",
-                        onClick = function()
-                            if dismissConfirmIdx_ == i then
-                                dismissConfirmIdx_ = nil
-                                DismissMember(i)
-                            else
-                                dismissConfirmIdx_ = i
-                                BuildUI()
-                            end
-                        end },
-                }},
-            },
-        })
-    end
-    -- 广告：团队看电影提振心情（平均心情<90时出现）
-    if #teamMembers_ > 0 then
-        local totalMood = 0
-        for _, m in ipairs(teamMembers_) do totalMood = totalMood + m.mood end
-        local avgMood = totalMood / #teamMembers_
-        if avgMood < 90 and AdManager.CanWatch("mood_boost", playerData_.day) then
-            table.insert(children, AdManager.AdButton {
-                sceneId = "mood_boost", day = playerData_.day,
-                text = "看广告请队员看电影 心情+15", width = "100%", height = 38, fontSize = 12,
-                onReward = function()
-                    for _, m in ipairs(teamMembers_) do
-                        m.mood = math.min(100, m.mood + 15)
-                    end
-                    AddLog("🎬 赞助商赠送电影票！全队一起看了大片，心情大好！所有队员心情+15")
-                    BuildUI()
-                end,
-            })
-        end
-    end
-
-    return UI.Panel {
-        width = "100%", padding = 10, gap = 5,
-        backgroundColor = C.card, borderRadius = 12, borderWidth = 1, borderColor = C.border,
-        children = children,
-    }
-end
-
-function BuildEventLog()
-    if #eventLog_ == 0 then return UI.Panel {} end
-    -- 只展示最新2条，保持紧凑
-    local items = {}
-    for i = #eventLog_, math.max(1, #eventLog_ - 1), -1 do
-        local txt = eventLog_[i]
-        if type(txt) ~= "string" then txt = tostring(txt or "") end
-        -- 每条记录前加图标前缀（如果没有的话）
-        if not txt:match("^[%p%s]*[\u{1F300}-\u{1FAFF}]") and not txt:match("^第") then
-            txt = "📌 " .. txt
-        end
-        table.insert(items, UI.Label {
-            text = txt, fontSize = 13, fontColor = C.textDim,
-            whiteSpace = "normal", lineHeight = 1.5,
-        })
-    end
-
-    local logChildren = {
-        UI.Panel {
-            flexDirection = "row", alignItems = "center", justifyContent = "space-between", width = "100%",
-            children = {
-                PanelHeader("最近动态", { icon = nil, compact = true, color = C.accentDim }),
-                #eventLog_ > 2 and UI.Label {
-                    text = "共" .. #eventLog_ .. "条",
-                    fontSize = 14, fontColor = C.textDim,
-                } or nil,
-            },
-        },
-    }
-    for _, item in ipairs(items) do
-        table.insert(logChildren, item)
-    end
-
-    return UI.Panel {
-        width = "100%", padding = 10, gap = 6,
-        backgroundColor = C.card, borderRadius = 14, borderWidth = 1, borderColor = C.border,
-        children = logChildren,
-    }
-end
 

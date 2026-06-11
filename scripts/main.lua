@@ -26,9 +26,15 @@ require "CafeEvents"
 require "GameVars"
 
 -- 3.5 留存系统
-require "Retention"
+Retention = require "Retention"
 RV2 = require "RetentionV2"
-require "NPCStorylines"
+NPCStorylines = require "NPCStorylines"
+DoorstepChat = require "DoorstepChat"
+ComboEvents = require "ComboEvents"
+LoreSystem = require "LoreSystem"
+TravelerSystem = require "TravelerSystem"
+PersonalStory = require "PersonalStory"
+RomanceSystem = require "RomanceSystem"
 
 -- 4. 音频与存档
 require "AudioSave"
@@ -56,6 +62,7 @@ require "UIManage"
 require "UICafe"
 require "UIChat"
 require "UIRanking"
+require "UILore"
 require "UIEvent"
 
 -- ============================================================================

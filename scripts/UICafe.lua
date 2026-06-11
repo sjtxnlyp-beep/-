@@ -44,6 +44,7 @@ function BuildCafeInlinePanel()
                 paddingHorizontal = 10, borderRadius = 6,
                 variant = "secondary", flexShrink = 0,
                 onClick = function()
+                    cafePopupOpen_ = false
                     cafeViewOpen_ = false
                     PlaySFX("click")
                     BuildUI()

@@ -1,4 +1,6 @@
 ---@diagnostic disable: undefined-global
+local Achievements = require("Achievements")
+local ReputationSystem = require("ReputationSystem")
 -- 训练逻辑
 function StartTraining(idx)
     -- RV2: 免费训练模式跳过AP消耗（方案1）
@@ -9,6 +11,21 @@ function StartTraining(idx)
     end
     trainMember_ = teamMembers_[idx]
     trainMemberIdx_ = idx
+    trainPhase_ = "ready"
+    trainActive_ = false
+    trainMode_ = "select"
+    PlayBGM("train")
+    currentPhase_ = PHASE_TRAIN
+    BuildUI()
+end
+
+--- 训练场重玩：无AP消耗、无选手关联、纯练习模式
+function StartReplayTraining()
+    replayTrainMode_ = true
+    -- 虚拟选手（提供训练系统所需的 skill/talent/trait 等字段）
+    trainMember_ = { name = "你", skill = 50, talent = 80, mood = 100, emoji = "🎮",
+                     trait = "自由练习", perkBonus = 0, flawPenalty = 0 }
+    trainMemberIdx_ = 0
     trainPhase_ = "ready"
     trainActive_ = false
     trainMode_ = "select"
@@ -110,10 +127,17 @@ function CalcTrainGain()
         local talentBonus = math.floor(trainMember_.talent / 35)
         return math.max(1, base + talentBonus + synergyTrain)
     elseif trainMode_ == "memory" then
-        local base = memoryCorrect_ * 2 + math.max(0, memoryLen_ - 3)
+        -- 路线规划：通过轮数 + 路径长度奖励
+        local base = routeCorrect_ * 2 + math.max(0, routeLen_ - 4)
         local talentBonus = math.floor(trainMember_.talent / 35)
-        return math.min(8, math.max(1, base + talentBonus + synergyTrain))  -- 单次上限8
+        return math.min(10, math.max(1, base + talentBonus + synergyTrain))
+    elseif trainMode_ == "comm" then
+        -- 指挥通讯：识别正确数
+        local base = commCorrect_ * 2
+        local talentBonus = math.floor(trainMember_.talent / 35)
+        return math.max(1, base + talentBonus + synergyTrain)
     else
+        -- 枪线校准：命中数 + combo加成
         local base = math.floor(trainScore_ / 3) + 1
         local talentBonus = math.floor(trainMember_.talent / 30)
         local comboBonus = math.floor(trainMaxCombo_ / 5)
@@ -129,6 +153,47 @@ function CalcFinalTrainGain()
         local ok, mfx = pcall(Market.CalcEquippedEffects)
         if ok and mfx and mfx.trainBonus and mfx.trainBonus > 0 then
             gain = gain + math.max(1, math.floor(gain * mfx.trainBonus))
+        end
+    end
+    -- P2-2: 心情影响训练收益
+    if trainMember_ then
+        local mood = trainMember_.mood or 50
+        if mood >= 80 then
+            -- 心情极佳：训练热情高涨 +20%
+            gain = math.floor(gain * 1.20)
+        elseif mood >= 60 then
+            -- 心情良好：正常发挥 +5%
+            gain = math.floor(gain * 1.05)
+        elseif mood < 30 then
+            -- 心情极差：消极怠工，随机失败
+            local failChance = (30 - mood) / 60  -- 心情0时 50% 失败率
+            if math.random() < failChance then
+                gain = math.max(0, math.floor(gain * 0.3))  -- 失败时仅得30%
+                AddLog("😞 " .. (trainMember_.name or "队员") .. " 心情低落，训练效果大打折扣！")
+            else
+                gain = math.floor(gain * 0.75)  -- 成功但效率低
+            end
+        elseif mood < 50 then
+            -- 心情偏低：效率下降 -15%
+            gain = math.floor(gain * 0.85)
+        end
+    end
+    -- 角色组合事件被动加成
+    if trainMember_ and ComboEvents then
+        local cbOk, cbBonus = pcall(ComboEvents.GetTrainBonus, trainMember_.name)
+        if cbOk and cbBonus and cbBonus > 1.0 then
+            gain = math.floor(gain * cbBonus)
+        end
+        local cbOk2, cbFlat = pcall(ComboEvents.GetTrainFlatBonus, trainMember_.name)
+        if cbOk2 and cbFlat and cbFlat > 0 then
+            gain = gain + cbFlat
+        end
+    end
+    -- 旅行者训练 buff
+    if TravelerSystem and TravelerSystem.GetTrainingBonus then
+        local tOk, tBonus = pcall(TravelerSystem.GetTrainingBonus)
+        if tOk and tBonus and tBonus > 0 then
+            gain = gain + math.max(1, math.floor(gain * tBonus))
         end
     end
     if not RV2 or not trainMember_ then return gain end
@@ -250,9 +315,163 @@ function OnMemoryInput(iconIdx)
     BuildUI()
 end
 
+-- ============================================================================
+-- 路线规划：空间路径记忆
+-- ============================================================================
+
+--- 生成一条随机不重复的路径（相邻格子连接）
+function GenerateRoutePath(len)
+    local grid = ROUTE_GRID
+    local path = {}
+    -- 起点随机
+    local start = math.random(1, grid * grid)
+    path[1] = start
+    for i = 2, len do
+        local cur = path[i - 1]
+        local row = math.ceil(cur / grid)
+        local col = ((cur - 1) % grid) + 1
+        -- 获取相邻格子（上下左右）
+        local neighbors = {}
+        if row > 1 then table.insert(neighbors, (row - 2) * grid + col) end
+        if row < grid then table.insert(neighbors, row * grid + col) end
+        if col > 1 then table.insert(neighbors, (row - 1) * grid + col - 1) end
+        if col < grid then table.insert(neighbors, (row - 1) * grid + col + 1) end
+        -- 过滤已在路径中的
+        local valid = {}
+        for _, n in ipairs(neighbors) do
+            local used = false
+            for _, p in ipairs(path) do if p == n then used = true; break end end
+            if not used then table.insert(valid, n) end
+        end
+        if #valid == 0 then break end -- 死胡同则截断
+        path[i] = valid[math.random(1, #valid)]
+    end
+    return path
+end
+
+--- 开始路线规划新一轮
+function StartRouteRound()
+    routeRound_ = routeRound_ + 1
+    if routeRound_ > routeTotalRounds_ then
+        trainPhase_ = "done"; trainActive_ = false
+        BuildUI()
+        return
+    end
+    trainPhase_ = "playing"
+    routePath_ = GenerateRoutePath(routeLen_)
+    routePlayerPath_ = {}
+    routeShowIdx_ = 0
+    routeShowTimer_ = 0
+    routePhaseState_ = "show"
+    BuildUI()
+end
+
+--- 玩家点击路线格子
+function OnRouteInput(idx)
+    if routePhaseState_ ~= "input" then return end
+    table.insert(routePlayerPath_, idx)
+    PlaySFX("click")
+    if #routePlayerPath_ >= #routePath_ then
+        -- 判断是否全部正确
+        local allCorrect = true
+        for i, v in ipairs(routePath_) do
+            if routePlayerPath_[i] ~= v then allCorrect = false; break end
+        end
+        if allCorrect then
+            routeCorrect_ = routeCorrect_ + 1
+            routeLen_ = math.min(routeLen_ + 1, 10)
+            PlaySFX("train_hit")
+        else
+            PlaySFX("miss")
+        end
+        routePhaseState_ = "result"
+        BuildUI()
+    else
+        BuildUI()
+    end
+end
+
+-- ============================================================================
+-- 指挥通讯：信息流筛选
+-- ============================================================================
+
+--- 生成一轮通讯消息
+function GenerateCommMessages()
+    local msgs = {}
+    -- 选择目标消息
+    local targetText = COMM_TARGETS[math.random(1, #COMM_TARGETS)]
+    -- 生成噪音消息（4-6条）
+    local noiseCount = math.min(4 + math.floor(commRound_ / 3), 7)
+    local usedNoise = {}
+    for i = 1, noiseCount do
+        local idx
+        repeat idx = math.random(1, #COMM_NOISE) until not usedNoise[idx]
+        usedNoise[idx] = true
+        table.insert(msgs, { text = COMM_NOISE[idx], isTarget = false, id = "noise_" .. i })
+    end
+    -- 将目标插入随机位置（但不在第一条，给玩家反应时间）
+    local insertPos = math.random(2, math.max(2, #msgs))
+    table.insert(msgs, insertPos, { text = targetText, isTarget = true, id = "target" })
+    return msgs
+end
+
+--- 开始指挥通讯新一轮
+function StartCommRound()
+    commRound_ = commRound_ + 1
+    if commRound_ > commTotalRounds_ then
+        trainPhase_ = "done"; trainActive_ = false
+        BuildUI()
+        return
+    end
+    trainPhase_ = "playing"
+    commMessages_ = GenerateCommMessages()
+    commTargetId_ = "target"
+    commPhaseState_ = "scroll"
+    commTimer_ = 0
+    commScrollY_ = 0
+    commAnswered_ = false
+    commMissed_ = false
+    -- 难度递增：速度加快
+    commSpeed_ = 1.0 + (commRound_ - 1) * 0.15
+    BuildUI()
+end
+
+--- 玩家点击通讯消息
+function OnCommMessageClick(msgId)
+    if commPhaseState_ ~= "scroll" or commAnswered_ then return end
+    commAnswered_ = true
+    if msgId == commTargetId_ then
+        commCorrect_ = commCorrect_ + 1
+        PlaySFX("train_hit")
+    else
+        PlaySFX("miss")
+    end
+    commPhaseState_ = "result"
+    commTimer_ = 0  -- 重置timer，确保result阶段有完整的展示时间
+    BuildUI()
+end
+
 function FinishTraining()
     -- 踢馆模式：跳转到踢馆回合结算
     if challengeActive_ then FinishChallengeRound(); return end
+
+    -- ── 个人记录保存（所有训练模式通用，含正常/免费/重玩） ──
+    UpdateTrainRecord()
+
+    -- 重玩模式：纯练习无奖励，直接返回
+    if replayTrainMode_ then
+        playerData_.trainPlayCount = (playerData_.trainPlayCount or 0) + 1
+        AddLog("🏋️ 训练场重玩完成！" .. (trainMode_ == "aim" and ("命中" .. trainScore_)
+            or trainMode_ == "quiz" and ("答对" .. quizCorrect_ .. "/" .. quizTotal_)
+            or trainMode_ == "react" and ("正确" .. reactCorrect_ .. "/" .. reactTotal_)
+            or trainMode_ == "memory" and ("通过" .. routeCorrect_ .. "/" .. routeTotalRounds_)
+            or ("识别" .. commCorrect_ .. "/" .. commTotalRounds_)))
+        replayTrainMode_ = false
+        trainMember_ = nil; trainActive_ = false; trainPhase_ = "ready"; trainMode_ = "select"
+        PlayBGM("manage")
+        currentPhase_ = PHASE_MANAGE; BuildUI()
+        return
+    end
 
     -- RV2: 免费训练模式走独立结算（方案1）
     if playerData_.freeTrainMode and trainMember_ then
@@ -260,6 +479,7 @@ function FinishTraining()
         if trainMode_ == "quiz" then score = (quizCorrect_ or 0) * 10
         elseif trainMode_ == "react" then score = (reactCorrect_ or 0) * 10
         elseif trainMode_ == "memory" then score = (memoryCorrect_ or 0) * 10
+        elseif trainMode_ == "comm" then score = (commCorrect_ or 0) * 10
         end
         pcall(SettleFreeTrainReward, score)
         trainMember_ = nil; trainActive_ = false; trainPhase_ = "ready"; trainMode_ = "select"
@@ -276,18 +496,62 @@ function FinishTraining()
         -- 委托追踪：训练次数
         playerData_.questTrainCount = (playerData_.questTrainCount or 0) + 1
         if trainMode_ == "quiz" then
-            AddLog("🧠 " .. trainMember_.name .. " 战术问答完成！答对" .. quizCorrect_ .. "/" .. quizTotal_ .. " 技术+" .. gain)
+            AddLog("🧠 " .. trainMember_.name .. " 赛后复盘完成！答对" .. quizCorrect_ .. "/" .. quizTotal_ .. " 技术+" .. gain)
         elseif trainMode_ == "react" then
-            AddLog("⚡ " .. trainMember_.name .. " 反应训练完成！正确" .. reactCorrect_ .. "/" .. reactTotal_ .. " 技术+" .. gain)
+            AddLog("⚡ " .. trainMember_.name .. " 节奏反应完成！正确" .. reactCorrect_ .. "/" .. reactTotal_ .. " 技术+" .. gain)
         elseif trainMode_ == "memory" then
-            AddLog("🧩 " .. trainMember_.name .. " 记忆训练完成！通过" .. memoryCorrect_ .. "/" .. memoryTotalRounds_ .. " 技术+" .. gain)
+            AddLog("🗺️ " .. trainMember_.name .. " 路线规划完成！通过" .. routeCorrect_ .. "/" .. routeTotalRounds_ .. " 技术+" .. gain)
+        elseif trainMode_ == "comm" then
+            AddLog("💬 " .. trainMember_.name .. " 指挥通讯完成！识别" .. commCorrect_ .. "/" .. commTotalRounds_ .. " 技术+" .. gain)
         else
-            AddLog("🎯 " .. trainMember_.name .. " 瞄准特训完成！命中" .. trainScore_ .. " 技术+" .. gain)
+            AddLog("🎯 " .. trainMember_.name .. " 枪线校准完成！命中" .. trainScore_ .. " 技术+" .. gain)
         end
     end
     trainMember_ = nil; trainActive_ = false; trainPhase_ = "ready"; trainMode_ = "select"
     PlayBGM("manage")
     currentPhase_ = PHASE_MANAGE; BuildUI()
+end
+
+--- 更新训练个人最高记录
+function UpdateTrainRecord()
+    if not playerData_ then return end
+    if not playerData_.trainRecords then
+        playerData_.trainRecords = {
+            aim = { score = 0, combo = 0 }, quiz = { correct = 0, total = 0 },
+            react = { correct = 0, total = 0, avgTime = 99 },
+            memory = { correct = 0, rounds = 0 }, comm = { correct = 0, rounds = 0, speed = 0 },
+        }
+    end
+    local rec = playerData_.trainRecords
+    if trainMode_ == "aim" then
+        if (trainScore_ or 0) > (rec.aim.score or 0) then
+            rec.aim.score = trainScore_
+            rec.aim.combo = trainMaxCombo_ or 0
+        end
+    elseif trainMode_ == "quiz" then
+        if (quizCorrect_ or 0) > (rec.quiz.correct or 0) then
+            rec.quiz.correct = quizCorrect_
+            rec.quiz.total = quizTotal_
+        end
+    elseif trainMode_ == "react" then
+        if (reactCorrect_ or 0) > (rec.react.correct or 0) then
+            rec.react.correct = reactCorrect_
+            rec.react.total = reactTotal_
+            local avg = reactCorrect_ > 0 and (reactTotalTime_ / reactCorrect_) or 99
+            rec.react.avgTime = avg
+        end
+    elseif trainMode_ == "memory" then
+        if (routeCorrect_ or 0) > (rec.memory.correct or 0) then
+            rec.memory.correct = routeCorrect_
+            rec.memory.rounds = routeTotalRounds_
+        end
+    elseif trainMode_ == "comm" then
+        if (commCorrect_ or 0) > (rec.comm.correct or 0) then
+            rec.comm.correct = commCorrect_
+            rec.comm.rounds = commTotalRounds_
+            rec.comm.speed = commSpeed_ or 0
+        end
+    end
 end
 
 function GetTeamAvgSkill()
@@ -324,6 +588,13 @@ function GetTeamPower()
         local ok, bondBonus = pcall(RV2.GetBondMatchBonus)
         if ok and bondBonus and bondBonus > 0 then
             p = p + bondBonus
+        end
+    end
+    -- 角色组合事件：比赛战力被动加成（铁壁双塔等）
+    if ComboEvents then
+        local ok, comboBonus = pcall(ComboEvents.GetMatchPowerBonus)
+        if ok and comboBonus and comboBonus > 0 then
+            p = p + math.floor(p * comboBonus)
         end
     end
     return p
@@ -531,9 +802,23 @@ function RunMatchRound()
         end
     end
 
-    -- 决策权重放大1.5倍，随机范围缩小为±20
-    local my = math.floor(tp * gamePowerMod) + karmaBonus + moodBonus + tacticBonus + math.floor(decisionMod * 1.5) + equipBonus + microOpBonus + math.random(-20, 20)
-    local op = opp.power + math.random(-20, 20)
+    -- 决策权重放大1.5倍；侦查后随机范围收窄为±8，未侦查为±13
+    local scouted = scoutedRound_ == matchRound_
+    local randRange = scouted and 8 or 13
+    local my = math.floor(tp * gamePowerMod) + karmaBonus + moodBonus + tacticBonus + math.floor(decisionMod * 1.5) + equipBonus + microOpBonus + math.random(-randRange, randRange)
+    local op = opp.power + math.random(-randRange, randRange)
+    if scouted then
+        AddLog("🔍 【侦查生效】掌握了对手信息，比赛波动大幅收窄（±" .. randRange .. "）")
+    end
+    -- 角色组合事件：逆风翻盘加成（己方劣势时额外战力）
+    if my < op and ComboEvents then
+        local cbOk, cbBonus = pcall(ComboEvents.GetComebackBonus)
+        if cbOk and cbBonus and cbBonus > 0 then
+            local comebackExtra = math.floor(op * cbBonus)
+            my = my + comebackExtra
+        end
+    end
+
     local won = my > op
 
     -- 选MVP（贡献最大的队员）
@@ -657,6 +942,10 @@ function FinishMatch()
     matchResult_ = (matchRound_ >= totalRounds and losses == 0) and "win"
         or losses > 0 and "lose" or "win"
 
+    -- 记录比赛结果供阿布杜大叔语录联动
+    playerData_.lastMatchResult = matchResult_
+    playerData_.lastMatchDay = playerData_.day
+
     if isFriendlyMatch_ then
         -- 比赛奖励（强敌×2，比赛等级倍率叠加）
         local won = matchResult_ == "win"
@@ -673,7 +962,22 @@ function FinishMatch()
             if ok and m then ghMatchMult = m end
         end
         local mult = eliteMult * tierMult * gameRewardMod * ghMatchMult
+        -- P1-1 电竞专精：比赛奖励 +30%
+        if (playerData_.specialization or "") == "esports" then
+            mult = mult * 1.30
+        end
+        -- 旅行者比赛 buff
+        if TravelerSystem and TravelerSystem.GetMatchBonus then
+            local tmOk, tmBonus = pcall(TravelerSystem.GetMatchBonus)
+            if tmOk and tmBonus and tmBonus > 0 then
+                mult = mult * (1.0 + tmBonus)
+            end
+        end
         local skillGain = math.floor((won and math.random(4, 8) or math.random(2, 4)) * mult)
+        -- P1-1 电竞专精：训练效率 +20%（通过 skillGain 体现）
+        if (playerData_.specialization or "") == "esports" then
+            skillGain = math.floor(skillGain * 1.20)
+        end
         local repGain = math.floor((won and 15 or 5) * mult)
         local prize = math.floor((won and math.random(40, 80) or 0) * mult)
         local hcGain = math.floor((won and math.random(20, 50) or math.random(5, 15)) * mult)
@@ -682,11 +986,15 @@ function FinishMatch()
             m.mood = math.min(100, m.mood + (won and 10 or -5))
         end
         playerData_.reputation = playerData_.reputation + repGain
+        -- 声望系统：比赛结果挂钩（输比赛扣声望、挑战赛结算）
+        ReputationSystem.OnMatchResult(won, tier >= 2)
         playerData_.money = playerData_.money + prize
         playerData_.havocCoins = playerData_.havocCoins + hcGain
         playerData_.totalRuns = playerData_.totalRuns + 2
 
         -- 追踪战绩
+        -- 快速委托追踪：总场次（胜负均算）
+        playerData_.questMatchPlayed = (playerData_.questMatchPlayed or 0) + 1
         if won then
             playerData_.friendlyWins = playerData_.friendlyWins + 1
             -- 委托追踪：比赛胜利
@@ -720,16 +1028,19 @@ function FinishMatch()
             local seasonPts = tier * (elite and 3 or 1)
             playerData_.seasonWins = (playerData_.seasonWins or 0) + seasonPts
             -- 赛季晋级检查
-            local seasonThresholds = { 10, 25, 50 }  -- 赛季1→2需10分, 2→3需25分, 3→?需50分
+            local seasonThresholds = { 10, 20, 35 }  -- 赛季1→2需10分, 2→3需20分, 3→?需35分
             local sid = playerData_.seasonId or 1
             if sid <= #seasonThresholds and playerData_.seasonWins >= seasonThresholds[sid] then
                 playerData_.seasonId = sid + 1
                 playerData_.seasonWins = 0
                 local seasonNames = { "新秀赛季", "精英赛季", "传奇赛季", "王者赛季" }
-                local reward = sid * 500
+                local seasonCashRewards = { 800, 1500, 3000 }   -- 修正倒挂：S1$800 S2$1500 S3$3000
+                local seasonRepRewards  = { 40,  70,  120  }    -- 声望递增：40/70/120
+                local reward   = seasonCashRewards[sid] or (sid * 800)
+                local repReward = seasonRepRewards[sid] or (sid * 40)
                 playerData_.money = playerData_.money + reward
-                playerData_.reputation = playerData_.reputation + sid * 30
-                AddLog("🏆 赛季晋级！进入「" .. (seasonNames[sid + 1] or "传说赛季") .. "」奖金$" .. reward .. " 声望+" .. (sid * 30))
+                playerData_.reputation = playerData_.reputation + repReward
+                AddLog("🏆 赛季晋级！进入「" .. (seasonNames[sid + 1] or "传说赛季") .. "」奖金$" .. reward .. " 声望+" .. repReward)
             end
         end
 
@@ -786,7 +1097,8 @@ function FinishMatch()
             end
             PlaySFX("defeat")
         end
-        CheckAchievements()
+        local newAch = Achievements.CheckAndUnlock()
+        if newAch and #newAch > 0 then pendingAchievements_ = newAch end
     else
         -- 正式锦标赛结果（适配多级锦标赛）
         local tCfg = (currentTournamentTier_ > 0) and TOURNAMENT_TIERS[currentTournamentTier_] or nil
@@ -800,6 +1112,13 @@ function FinishMatch()
             PlayBGM("victory")
             PlaySFX("victory"); PlaySFX("crowd_cheer")
             TriggerCelebration()
+            -- 叙事系统：比赛后内心感悟（里程碑胜利时触发）
+            if PersonalStory and PersonalStory.GetMatchReflection then
+                local refOk, reflection = pcall(PersonalStory.GetMatchReflection)
+                if refOk and reflection then
+                    table.insert(matchLog_, { text = "💭 " .. reflection, color = {200, 200, 255, 255} })
+                end
+            end
         else
             PlaySFX("defeat")
         end

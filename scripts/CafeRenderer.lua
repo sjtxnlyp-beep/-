@@ -5,6 +5,7 @@
 
 local CafeRenderer = {}
 local CafeAnimEvents = require("CafeAnimEvents")
+local CafeCustomize = require("CafeCustomize")
 
 -- ── 颜色配置（暖色系） ──
 local COLORS = {
@@ -347,9 +348,11 @@ function CafeRenderer.Draw(vg, x, y, w, h, data)
     local bodyY = y + 2 + roofH * 0.6
     local bodyH = h - roofH * 0.6 - 4
 
-    -- ── 建筑外壳 ──
-    drawRect(vg, buildingX, bodyY, buildingW, bodyH, COLORS.wallOuter)
-    drawRect(vg, buildingX + wallThick, bodyY, buildingW - wallThick * 2, bodyH, COLORS.wallInner)
+    -- ── 建筑外壳（应用装修壁纸配色） ──
+    local wpColors = CafeCustomize.GetWallpaperColors()
+    local floorColors = CafeCustomize.GetFloorColors()
+    drawRect(vg, buildingX, bodyY, buildingW, bodyH, wpColors.wallColor)
+    drawRect(vg, buildingX + wallThick, bodyY, buildingW - wallThick * 2, bodyH, wpColors.innerColor)
 
     -- ── 更新小人 ──
     animState.peopleTimer = animState.peopleTimer + dt
@@ -369,7 +372,7 @@ function CafeRenderer.Draw(vg, x, y, w, h, data)
 
         -- 地板线
         if floor > 1 then
-            drawRect(vg, buildingX, fy, buildingW, 2, COLORS.floor)
+            drawRect(vg, buildingX, fy, buildingW, 2, floorColors.color)
         end
 
         -- 窗户（每层两个，在外墙上）
@@ -485,6 +488,45 @@ function CafeRenderer.Draw(vg, x, y, w, h, data)
             nvgCircle(vg, smokeX, smokeY, 3 + math.sin(animState.time + i) * 1.5)
             nvgFillColor(vg, nvgRGBA(COLORS.smoke[1], COLORS.smoke[2], COLORS.smoke[3], smokeA))
             nvgFill(vg)
+        end
+    end
+
+    -- ── 灯光色调叠加（装修系统） ──
+    local ltOverlay = CafeCustomize.GetLightingOverlay()
+    if ltOverlay.alpha > 0 then
+        drawRect(vg, buildingX + wallThick, bodyY, buildingW - wallThick * 2, bodyH, ltOverlay.overlay, ltOverlay.alpha)
+    end
+
+    -- ── 壁纸特效：涂鸦/图腾装饰点缀 ──
+    if wpColors.hasGraffiti then
+        -- 霓虹涂鸦点缀（随机荧光色块）
+        local gTime = animState.time
+        for i = 1, 4 do
+            local gx = buildingX + wallThick + 8 + ((i * 37 + 11) % (math.floor(buildingW) - wallThick * 2 - 16))
+            local gy = bodyY + 8 + ((i * 23 + 7) % (math.floor(bodyH) - 20))
+            local gAlpha = 120 + math.floor(60 * math.sin(gTime * 2 + i * 1.5))
+            local gColors = { { 255, 50, 200 }, { 50, 255, 150 }, { 255, 255, 50 }, { 50, 200, 255 } }
+            nvgBeginPath(vg)
+            nvgCircle(vg, gx, gy, 2.5 + math.sin(gTime + i) * 0.8)
+            nvgFillColor(vg, nvgRGBA(gColors[i][1], gColors[i][2], gColors[i][3], gAlpha))
+            nvgFill(vg)
+        end
+    end
+    if wpColors.hasPattern then
+        -- 金星图腾（重复菱形纹饰）
+        nvgStrokeWidth(vg, 0.8)
+        nvgStrokeColor(vg, nvgRGBA(200, 170, 50, 80))
+        local patW = buildingW - wallThick * 2
+        for i = 0, 5 do
+            local px = buildingX + wallThick + 6 + i * (patW / 6)
+            local py = bodyY + bodyH * 0.3
+            nvgBeginPath(vg)
+            nvgMoveTo(vg, px, py - 5)
+            nvgLineTo(vg, px + 4, py)
+            nvgLineTo(vg, px, py + 5)
+            nvgLineTo(vg, px - 4, py)
+            nvgClosePath(vg)
+            nvgStroke(vg)
         end
     end
 

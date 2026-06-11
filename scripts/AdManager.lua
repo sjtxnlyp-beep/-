@@ -24,6 +24,7 @@ AdManager.limits = {
     revive_match    = 1,  -- 比赛失败复活
     recruit_discount= 1,  -- 招募折扣
     gold_trade_bonus= 1,  -- 黄金交易加成
+    sponsor_gift    = 1,  -- 每日福利（观看广告领现金）
     sponsor_small   = 3,  -- 赞助商中心小奖励
     market_pull     = 2,  -- 市场广告抽卡
     upgrade_skip    = 2,  -- 升级加速/跳过
@@ -60,15 +61,21 @@ function AdManager.ShowAd(sceneId, day, onSuccess, onFail)
         if onFail then onFail("今日次数已用完") end
         return
     end
-    sdk:ShowRewardVideoAd(function(result)
-        if result.success then
-            local log = AdManager.watchLog[sceneId]
-            log.count = log.count + 1
-            if onSuccess then onSuccess() end
-        else
-            if onFail then onFail(result.msg or "广告播放失败") end
-        end
+    local ok, err = pcall(function()
+        sdk:ShowRewardVideoAd(function(result)
+            if result.success then
+                local adLog = AdManager.watchLog[sceneId]
+                adLog.count = adLog.count + 1
+                if onSuccess then onSuccess() end
+            else
+                if onFail then onFail(result.msg or "广告播放失败") end
+            end
+        end)
     end)
+    if not ok then
+        print("[AdManager] ShowRewardVideoAd error: " .. tostring(err))
+        if onFail then onFail("广告加载失败，请稍后再试") end
+    end
 end
 
 --- 生成统一风格的广告按钮（金色福利主题）

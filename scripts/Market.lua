@@ -6,6 +6,7 @@
 ------------------------------------------------------------
 
 local MarketData = require("MarketData")
+local MarketStorylines = require("MarketStorylines")
 local Market = {}
 
 -- ============================================================
@@ -17,11 +18,18 @@ function Market.Validate(pd)
     if not pd then return end
     pd.marketInventory   = pd.marketInventory   or {}   -- { {id=, uid=, dur=, ...}, ... }
     pd.marketEquipped    = pd.marketEquipped    or {}   -- { [slotIdx] = uid }
-    pd.marketSlots       = pd.marketSlots       or 3
-    pd.marketPityCounter = pd.marketPityCounter or 0
-    pd.marketTotalPulls  = pd.marketTotalPulls  or 0
-    pd.marketNextUID     = pd.marketNextUID     or 1
+    pd.marketSlots       = tonumber(pd.marketSlots) or 3
+    pd.marketPityCounter = tonumber(pd.marketPityCounter) or 0
+    pd.marketTotalPulls  = tonumber(pd.marketTotalPulls) or 0
+    pd.marketNextUID     = tonumber(pd.marketNextUID) or 1
     pd.marketDailyFree   = pd.marketDailyFree   or false -- 今日是否已用免费单抽
+    pd.havocCoins        = tonumber(pd.havocCoins) or 0  -- 确保哈弗币字段存在
+    -- 修复旧存档中 JSON 反序列化后数字变 string 的问题
+    for _, inst in ipairs(pd.marketInventory) do
+        inst.dur    = tonumber(inst.dur) or 0
+        inst.maxDur = tonumber(inst.maxDur) or inst.dur
+        inst.uid    = tonumber(inst.uid) or inst.uid
+    end
 end
 
 --- 生成唯一物品实例 ID
@@ -96,10 +104,23 @@ local function rollTier()
 end
 
 --- 从指定品质池随机选一件物品，返回定义表
+--- 城市专属物品只在对应城市出现
 local function pickItem(tier)
     local pool = MarketData.ITEMS_BY_TIER[tier]
     if not pool or #pool == 0 then pool = MarketData.ITEMS_BY_TIER[1] end
-    return pool[math.random(1, #pool)]
+
+    -- 过滤城市专属：排除不属于当前城市的专属物品
+    local currentCity = playerData_ and playerData_.currentCity or "wakandaville"
+    local filtered = {}
+    ---@diagnostic disable-next-line: param-type-mismatch
+    for _, item in ipairs(pool) do
+        if not item.cityExclusive or item.cityExclusive == currentCity then
+            table.insert(filtered, item)
+        end
+    end
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    if #filtered == 0 then filtered = pool end  -- 兜底
+    return filtered[math.random(1, #filtered)]
 end
 
 --- 创建物品实例
@@ -121,6 +142,10 @@ function Market.DoPullOne()
     local inst = createInstance(def)
     table.insert(playerData_.marketInventory, inst)
     playerData_.marketTotalPulls = playerData_.marketTotalPulls + 1
+    -- 图鉴系统 hook：记录物品品质
+    if LoreSystem and LoreSystem.OnItemObtained then
+        pcall(LoreSystem.OnItemObtained, def.tier or tier, def.id)
+    end
     return inst, def
 end
 
@@ -150,8 +175,10 @@ function Market.CanAfford(pullType)
         local ok = playerData_.havocCoins >= MarketData.PULL_COST.ten
         return ok, (not ok) and ("需要 " .. MarketData.PULL_COST.ten .. " 哈弗币") or nil
     elseif pullType == "money_single" then
-        local ok = playerData_.money >= MarketData.PULL_COST.money
-        return ok, (not ok) and ("需要 $" .. MarketData.PULL_COST.money) or nil
+        local costMul = MarketData.GetCityCostMultiplier and MarketData.GetCityCostMultiplier() or 1.0
+        local cost = math.floor(MarketData.PULL_COST.money * costMul)
+        local ok = playerData_.money >= cost
+        return ok, (not ok) and ("需要 $" .. cost) or nil
     end
     return false, "未知类型"
 end
@@ -163,21 +190,33 @@ function Market.Pull(pullType)
     local canDo, reason = Market.CanAfford(pullType)
     if not canDo then return nil, reason end
 
+    -- 获取故事线折扣
+    local discount = 0
+    pcall(function()
+        local bonuses = MarketStorylines.GetBonuses()
+        discount = bonuses.pullDiscount or 0
+    end)
+    local discountMul = math.max(0.5, 1 - discount / 100) -- 最多5折
+
     if pullType == "single" then
         if not playerData_.marketDailyFree then
             playerData_.marketDailyFree = true  -- 标记已用免费
         else
-            playerData_.havocCoins = playerData_.havocCoins - MarketData.PULL_COST.single
+            local cost = math.floor(MarketData.PULL_COST.single * discountMul)
+            playerData_.havocCoins = playerData_.havocCoins - cost
         end
         local inst, def = Market.DoPullOne()
         return { { inst = inst, def = def } }, nil
 
     elseif pullType == "ten" then
-        playerData_.havocCoins = playerData_.havocCoins - MarketData.PULL_COST.ten
+        local cost = math.floor(MarketData.PULL_COST.ten * discountMul)
+        playerData_.havocCoins = playerData_.havocCoins - cost
         return Market.DoPullN(10), nil
 
     elseif pullType == "money_single" then
-        playerData_.money = playerData_.money - MarketData.PULL_COST.money
+        local costMul = MarketData.GetCityCostMultiplier and MarketData.GetCityCostMultiplier() or 1.0
+        local cost = math.floor(MarketData.PULL_COST.money * costMul * discountMul)
+        playerData_.money = playerData_.money - cost
         local inst, def = Market.DoPullOne()
         return { { inst = inst, def = def } }, nil
     end
@@ -333,6 +372,7 @@ end
 function Market.CalcEquippedEffects()
     Market.Validate(playerData_)
     local effects = {}
+    local activatedList = {}  -- P2: 记录已激活的装备ID
     for slotIdx = 1, playerData_.marketSlots do
         local uid = playerData_.marketEquipped[slotIdx]
         if uid then
@@ -342,12 +382,29 @@ function Market.CalcEquippedEffects()
                 local def = MarketData.ITEMS_BY_ID[inst.id]
                 if def and def.effects and inst.dur > 0 then
                     for k, v in pairs(def.effects) do
-                        effects[k] = (effects[k] or 0) + v
+                        if type(v) == "number" then
+                            ---@diagnostic disable-next-line: assign-type-mismatch
+                            effects[k] = (effects[k] or 0) + v
+                        else
+                            effects[k] = v  -- cityId 等字符串效果直接保留
+                        end
+                    end
+                    -- P2: 装备激活效应（跨模块条件满足时叠加额外加成）
+                    local ab = MarketData.ACTIVATE_BY_ID and MarketData.ACTIVATE_BY_ID[inst.id]
+                    if ab and ab.check then
+                        local okC, met = pcall(ab.check, playerData_)
+                        if okC and met and ab.bonus then
+                            for k, v in pairs(ab.bonus) do
+                                effects[k] = (effects[k] or 0) + v
+                            end
+                            table.insert(activatedList, { id = inst.id, name = def.name, cond = ab.condDesc })
+                        end
                     end
                 end
             end
         end
     end
+    effects._activated = activatedList  -- 附带激活信息供 UI 显示
     return effects
 end
 
@@ -481,7 +538,13 @@ function Market.GetSlotsDisplay()
             if idx then
                 local inst = playerData_.marketInventory[idx]
                 local def = MarketData.ITEMS_BY_ID[inst.id]
-                slots[i] = { inst = inst, def = def, durPct = inst.maxDur > 0 and math.floor(inst.dur / inst.maxDur * 100) or 0 }
+                if def then
+                    slots[i] = { inst = inst, def = def, durPct = inst.maxDur > 0 and math.floor(inst.dur / inst.maxDur * 100) or 0 }
+                else
+                    -- 物品定义不存在（可能因版本更新），自动卸下
+                    playerData_.marketEquipped[i] = nil
+                    slots[i] = nil
+                end
             else
                 playerData_.marketEquipped[i] = nil
                 slots[i] = nil
@@ -508,6 +571,286 @@ function Market.GetStats()
         slots       = playerData_.marketSlots,
         tierCounts  = tierCounts,
     }
+end
+
+-- ============================================================
+-- Batch 3: 装饰槽位系统
+-- 独立于装备槽，专门放置 category="decoration" 的物品
+-- 装饰不会损耗耐久，但有独立的效果聚合
+-- ============================================================
+
+--- 确保装饰槽位字段存在
+function Market.ValidateDeco(pd)
+    if not pd then return end
+    pd.decoSlots    = pd.decoSlots    or {}   -- { [slotIdx] = uid }
+    pd.decoSlotsMax = pd.decoSlotsMax or 3    -- 初始3个装饰位
+end
+
+--- 判断物品是否已放入装饰槽
+local function isDecoPlaced(uid)
+    for _, dUID in pairs(playerData_.decoSlots or {}) do
+        if dUID == uid then return true end
+    end
+    return false
+end
+
+--- 放置装饰品到指定槽位
+--- @return boolean ok, string|nil err
+function Market.PlaceDeco(uid, slotIdx)
+    Market.Validate(playerData_)
+    Market.ValidateDeco(playerData_)
+
+    if slotIdx < 1 or slotIdx > playerData_.decoSlotsMax then
+        return false, "装饰位未解锁"
+    end
+
+    local idx = findItemIdx(uid)
+    if not idx then return false, "物品不存在" end
+
+    local inst = playerData_.marketInventory[idx]
+    local def = MarketData.ITEMS_BY_ID[inst.id]
+    if not def then return false, "数据异常" end
+    if def.category ~= "decoration" then
+        return false, "只能放置装饰类物品"
+    end
+    if isEquipped(uid) then return false, "物品已装备" end
+    if isDecoPlaced(uid) then return false, "已放置" end
+
+    -- 如果槽位已有物品，先移除
+    playerData_.decoSlots[slotIdx] = uid
+    return true, nil
+end
+
+--- 移除装饰槽位中的物品
+function Market.RemoveDeco(slotIdx)
+    Market.Validate(playerData_)
+    Market.ValidateDeco(playerData_)
+    playerData_.decoSlots[slotIdx] = nil
+    return true
+end
+
+--- 解锁额外装饰槽位（通过章节或金币）
+--- @return boolean ok, string|nil err
+function Market.UnlockDecoSlot()
+    Market.ValidateDeco(playerData_)
+    local maxAllowed = 6  -- 装饰位上限
+    if playerData_.decoSlotsMax >= maxAllowed then
+        return false, "已达上限"
+    end
+    -- 解锁费用递增
+    local costs = { [4] = 2000, [5] = 5000, [6] = 10000 }
+    local nextSlot = playerData_.decoSlotsMax + 1
+    local cost = costs[nextSlot] or 5000
+    if playerData_.money < cost then
+        return false, "需要 $" .. cost
+    end
+    playerData_.money = playerData_.money - cost
+    playerData_.decoSlotsMax = nextSlot
+    return true, nil
+end
+
+--- 计算装饰槽位的聚合效果
+--- @return table effects
+function Market.CalcDecoEffects()
+    Market.Validate(playerData_)
+    Market.ValidateDeco(playerData_)
+    local effects = {}
+    local placed = {}
+    for slotIdx = 1, playerData_.decoSlotsMax do
+        local uid = playerData_.decoSlots[slotIdx]
+        if uid then
+            local idx = findItemIdx(uid)
+            if idx then
+                local inst = playerData_.marketInventory[idx]
+                local def = MarketData.ITEMS_BY_ID[inst.id]
+                if def and def.effects then
+                    for k, v in pairs(def.effects) do
+                        if type(v) == "number" then
+                            effects[k] = (effects[k] or 0) + v
+                        else
+                            effects[k] = v
+                        end
+                    end
+                    table.insert(placed, { slot = slotIdx, def = def, inst = inst })
+                end
+            else
+                playerData_.decoSlots[slotIdx] = nil
+            end
+        end
+    end
+    -- 装饰套装奖励：放满所有槽位时额外 +5% 全收入
+    if #placed >= playerData_.decoSlotsMax and playerData_.decoSlotsMax >= 3 then
+        effects.allRevenueBonus = (effects.allRevenueBonus or 0) + 0.05
+        effects._setBonus = true
+    end
+    effects._placedCount = #placed
+    return effects
+end
+
+--- 获取装饰槽位显示信息
+function Market.GetDecoSlotsDisplay()
+    Market.Validate(playerData_)
+    Market.ValidateDeco(playerData_)
+    local slots = {}
+    for i = 1, playerData_.decoSlotsMax do
+        local uid = playerData_.decoSlots[i]
+        if uid then
+            local idx = findItemIdx(uid)
+            if idx then
+                local inst = playerData_.marketInventory[idx]
+                local def = MarketData.ITEMS_BY_ID[inst.id]
+                slots[i] = { inst = inst, def = def }
+            else
+                playerData_.decoSlots[i] = nil
+                slots[i] = nil
+            end
+        else
+            slots[i] = nil
+        end
+    end
+    return slots, playerData_.decoSlotsMax
+end
+
+--- 获取可放置的装饰品列表（背包中 category=decoration 且未装备/未放置的）
+function Market.GetAvailableDecoItems()
+    Market.Validate(playerData_)
+    Market.ValidateDeco(playerData_)
+    local list = {}
+    for _, inst in ipairs(playerData_.marketInventory) do
+        local def = MarketData.ITEMS_BY_ID[inst.id]
+        if def and def.category == "decoration" and not isEquipped(inst.uid) and not isDecoPlaced(inst.uid) then
+            table.insert(list, { inst = inst, def = def, tier = def.tier })
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.tier ~= b.tier then return a.tier > b.tier end
+        return a.inst.uid < b.inst.uid
+    end)
+    return list
+end
+
+-- ============================================================
+-- Batch 4: 城市设施系统（大额金币消耗 + 永久加成）
+-- ============================================================
+
+--- 确保城市设施字段存在
+function Market.ValidateFacility(pd)
+    if not pd then return end
+    pd.cityFacilities = pd.cityFacilities or {}  -- { [cityId] = level }
+end
+
+--- 获取当前城市设施信息（供 UI 显示）
+--- @return table|nil info { name, desc, level, maxLevel, nextCost, effects, nextEffects }
+function Market.GetCityFacilityInfo()
+    Market.ValidateFacility(playerData_)
+    local facility = MarketData.GetCityFacility()
+    if not facility then return nil end
+
+    local currentCity = playerData_.currentCity or "wakandaville"
+    local level = playerData_.cityFacilities[currentCity] or 0
+    local maxLevel = #facility.levels
+
+    local info = {
+        name     = facility.name,
+        desc     = facility.desc,
+        level    = level,
+        maxLevel = maxLevel,
+        effects  = level > 0 and facility.levels[level].effects or {},
+    }
+    -- 下一级信息
+    if level < maxLevel then
+        local nextLvl = facility.levels[level + 1]
+        info.nextCost    = nextLvl.cost
+        info.nextEffects = nextLvl.effects
+    end
+    return info
+end
+
+--- 升级当前城市设施
+--- @return boolean ok, string|nil err
+function Market.UpgradeCityFacility()
+    Market.ValidateFacility(playerData_)
+    local facility = MarketData.GetCityFacility()
+    if not facility then return false, "本城市无可升级设施" end
+
+    local currentCity = playerData_.currentCity or "wakandaville"
+    local level = playerData_.cityFacilities[currentCity] or 0
+    local maxLevel = #facility.levels
+
+    if level >= maxLevel then return false, "已满级" end
+
+    local nextLvl = facility.levels[level + 1]
+    if playerData_.money < nextLvl.cost then
+        return false, "需要 $" .. nextLvl.cost
+    end
+
+    playerData_.money = playerData_.money - nextLvl.cost
+    playerData_.cityFacilities[currentCity] = level + 1
+
+    if AddLog then
+        AddLog("🏗️ " .. facility.name .. " 升级到 Lv." .. (level + 1) .. "!")
+    end
+    return true, nil
+end
+
+--- 计算当前城市设施效果（供效果聚合使用）
+--- @return table effects
+function Market.CalcFacilityEffects()
+    Market.ValidateFacility(playerData_)
+    local effects = MarketData.GetCityFacilityEffects()
+    return effects or {}
+end
+
+-- ============================================================
+-- 每日城市税（在 EndDay/DailyTick 之后调用）
+-- ============================================================
+
+--- 扣除每日城市税，返回扣除金额
+--- @return number taxAmount
+function Market.ApplyDailyTax()
+    local tax = MarketData.GetDailyTax and MarketData.GetDailyTax() or 0
+    if tax > 0 and playerData_ then
+        -- 城市设施可能减税
+        local facilityEffects = Market.CalcFacilityEffects()
+        local taxReduction = facilityEffects.taxReduction or 0
+        tax = math.max(0, math.floor(tax * (1 - taxReduction)))
+
+        if tax > 0 then
+            playerData_.money = math.max(0, playerData_.money - tax)
+            if AddLog then
+                AddLog("🏛️ 缴纳城市运营税 $" .. tax)
+            end
+        end
+    end
+    return tax
+end
+
+--- 计算所有市场系统的聚合效果（装备 + 装饰 + 城市设施）
+--- 供外部统一调用
+--- @return table combinedEffects
+function Market.CalcAllEffects()
+    local eq = Market.CalcEquippedEffects()
+    local deco = Market.CalcDecoEffects()
+    local fac = Market.CalcFacilityEffects()
+
+    local combined = {}
+    -- 合并三层效果
+    for _, src in ipairs({ eq, deco, fac }) do
+        for k, v in pairs(src) do
+            if k:sub(1, 1) ~= "_" then  -- 跳过内部标记
+                if type(v) == "number" then
+                    combined[k] = (combined[k] or 0) + v
+                else
+                    combined[k] = v
+                end
+            end
+        end
+    end
+    -- 保留内部标记
+    combined._activated = eq._activated
+    combined._setBonus = deco._setBonus
+    combined._placedCount = deco._placedCount
+    return combined
 end
 
 return Market
