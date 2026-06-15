@@ -3,6 +3,7 @@ local ProgressiveUnlock = require("ProgressiveUnlock")
 local ClimaxDay = require("ClimaxDay")
 local CrisisChain = require("CrisisChain")
 local ReputationSystem = require("ReputationSystem")
+local TabSubQuests = require("TabSubQuests")
 
 -- ═══ 智能折叠状态（非高频栏目默认折叠，减少滚动） ═══
 sectionFolded_ = sectionFolded_ or {}
@@ -87,23 +88,126 @@ function BuildActionChoicePopup()
     }
 end
 
--- Tab 分类常量
-ACTION_TAB_MANAGE = "manage"   -- 🏠 经营
-ACTION_TAB_TEAM   = "team"     -- ⚔️ 团队
-ACTION_TAB_MARKET = "market"   -- 🏪 市场
+-- ═══ 街区故事确认弹窗（带NPC台词 + 场景描写 + 选项按钮） ═══
+---@type {npc: string, lines: string[], options: table[]}|nil
+storyConfirmData_ = storyConfirmData_ or nil
+
+--- 显示故事确认弹窗
+---@param data {npc: string, lines: string[], options: {text: string, hint?: string, onClick: function}[]}
+function ShowStoryConfirm(data)
+    storyConfirmData_ = data
+    PlaySFX("click")
+    BuildUI()
+end
+
+--- 构建故事确认弹窗 UI（overlay 层渲染）
+function BuildStoryConfirmPopup()
+    if not storyConfirmData_ then return nil end
+    local data = storyConfirmData_
+    local UI = require("urhox-libs/UI")
+
+    -- NPC 名字标题
+    local header = UI.Label {
+        text = data.npc or "街坊",
+        fontSize = 15, fontWeight = "bold",
+        fontColor = { 255, 220, 130, 255 },
+    }
+
+    -- 对话文本行
+    local dialogLines = {}
+    for _, line in ipairs(data.lines or {}) do
+        table.insert(dialogLines, UI.Label {
+            text = line,
+            fontSize = 12.5, fontColor = { 220, 210, 190, 230 },
+            width = "100%",
+            marginBottom = 4,
+        })
+    end
+
+    -- 选项按钮
+    local optBtns = {}
+    for _, opt in ipairs(data.options or {}) do
+        local btnText = opt.text
+        if opt.hint then btnText = btnText .. "  " .. opt.hint end
+        local isCancel = opt.isCancel
+        table.insert(optBtns, UI.Button {
+            text = btnText,
+            width = "100%", height = 42, fontSize = 12.5, fontWeight = "bold",
+            borderRadius = 8,
+            backgroundColor = isCancel and { 35, 30, 25, 200 } or { 45, 55, 40, 255 },
+            fontColor = isCancel and { 150, 140, 120, 200 } or { 200, 255, 180, 255 },
+            borderWidth = 1.5,
+            borderColor = isCancel and { 80, 70, 55, 150 } or { 120, 180, 80, 200 },
+            onClick = function()
+                storyConfirmData_ = nil
+                if opt.onClick then opt.onClick() end
+                if isCancel then BuildUI() end
+            end,
+        })
+    end
+
+    -- 组装弹窗
+    local cardChildren = {}
+    table.insert(cardChildren, header)
+    table.insert(cardChildren, UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 }, marginVertical = 4 })
+    for _, dl in ipairs(dialogLines) do table.insert(cardChildren, dl) end
+    table.insert(cardChildren, UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 }, marginVertical = 6 })
+    for _, btn in ipairs(optBtns) do table.insert(cardChildren, btn) end
+
+    return UI.Panel {
+        position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+        backgroundColor = { 0, 0, 0, 170 },
+        justifyContent = "center", alignItems = "center",
+        onClick = function()
+            storyConfirmData_ = nil
+            PlaySFX("click")
+            BuildUI()
+        end,
+        children = {
+            UI.Panel {
+                width = "82%", maxWidth = 320,
+                backgroundColor = { 25, 20, 15, 250 },
+                borderRadius = 14, borderWidth = 1.5,
+                borderColor = { 140, 110, 50, 160 },
+                paddingHorizontal = 16, paddingVertical = 14, gap = 6,
+                alignItems = "center",
+                children = cardChildren,
+            },
+        },
+    }
+end
+
+-- Tab 分类常量（5分类：经营|街区|战队|风险|副业）
+ACTION_TAB_MANAGE = "manage"     -- 🏠 经营（核心网吧运营）
+ACTION_TAB_HOOD   = "hood"       -- 🏘️ 街区（社区关系·声望）
+ACTION_TAB_TEAM   = "team"       -- ⚔️ 战队（Dragon Force）
+ACTION_TAB_RISK   = "risk"       -- 💰 风险（高风险投机）
+ACTION_TAB_REST   = "rest"       -- 💼 副业（赚外快·赞助商·学习充电）
+-- 兼容旧存档（market tab 映射到 risk）
+ACTION_TAB_MARKET = ACTION_TAB_RISK
 
 -- 当前选中的Tab（全局状态，BuildUI时保持）
 if not currentActionTab_ then currentActionTab_ = ACTION_TAB_MANAGE end
+-- 兼容：旧存档 market→risk
+if currentActionTab_ == "market" then currentActionTab_ = ACTION_TAB_RISK end
 
 --- 获取可用Tab列表（渐进解锁）
 function GetActionTabs()
     local tabs = { { id = ACTION_TAB_MANAGE, icon = "🏠", label = "经营" } }
-    if ProgressiveUnlock.IsUnlocked("btn_recruit") or ProgressiveUnlock.IsUnlocked("btn_match") then
-        table.insert(tabs, { id = ACTION_TAB_TEAM, icon = "⚔️", label = "团队" })
+    -- 街区：绑定剧情（首次逛集市后解锁，Day6兜底）
+    if ProgressiveUnlock.IsUnlocked("tab_hood") then
+        table.insert(tabs, { id = ACTION_TAB_HOOD, icon = "🏘️", label = "街区" })
     end
-    if ProgressiveUnlock.IsUnlocked("panel_gold") or ProgressiveUnlock.IsUnlocked("panel_branch") then
-        table.insert(tabs, { id = ACTION_TAB_MARKET, icon = "🏪", label = "市场" })
+    -- 战队：绑定剧情（Kofi加入后解锁，Day5兜底）
+    if ProgressiveUnlock.IsUnlocked("tab_team_action") then
+        table.insert(tabs, { id = ACTION_TAB_TEAM, icon = "⚔️", label = "战队" })
     end
+    -- 风险/投资：绑定剧情（Big Joe或金融事件后解锁，Day12兜底）
+    if ProgressiveUnlock.IsUnlocked("tab_risk") then
+        table.insert(tabs, { id = ACTION_TAB_RISK, icon = "💰", label = "投资" })
+    end
+    -- 副业：始终可用（修手机从Day1就有）
+    table.insert(tabs, { id = ACTION_TAB_REST, icon = "💼", label = "副业" })
     return tabs
 end
 
@@ -112,11 +216,15 @@ function HasTabActivity(tabId)
     local noAP = (playerData_.actionPoints or 0) <= 0
     if tabId == ACTION_TAB_MANAGE then
         if not noAP then return true end
+    elseif tabId == ACTION_TAB_HOOD then
+        if not noAP and ProgressiveUnlock.IsUnlocked("btn_market_visit") then return true end
     elseif tabId == ACTION_TAB_TEAM then
         if not noAP and #teamMembers_ >= 1 then return true end
         if ProgressiveUnlock.IsUnlocked("btn_match") and not friendlyMatchToday_ and #teamMembers_ >= 2 then return true end
-    elseif tabId == ACTION_TAB_MARKET then
+    elseif tabId == ACTION_TAB_RISK then
         if ProgressiveUnlock.IsUnlocked("panel_gold") then return true end
+    elseif tabId == ACTION_TAB_REST then
+        if not noAP then return true end
     end
     return false
 end
@@ -213,16 +321,16 @@ function BuildActionCard()
         },
     }
 
-    -- ── 广告：额外行动点（AP耗尽时显示） ──
+    -- ── 赞助商合作：帮贴海报（叙事包装 extra_ap 广告） ──
     local adExtraAP = nil
     if noAP and AdManager.CanWatch("extra_ap", playerData_.day) then
         adExtraAP = AdManager.AdButton {
             sceneId = "extra_ap", day = playerData_.day,
-            text = "看视频多干一件事 +1AP",
+            text = "🪧 帮贴海报 → 精力恢复+1AP",
             height = 42, fontSize = 13,
             onReward = function()
                 playerData_.actionPoints = playerData_.actionPoints + 1
-                AddLog("🎬 赞助商的能量饮料让你恢复了精力！行动点+1")
+                AddLog("🤝 帮赞助商贴了广告海报，对方请你喝了杯咖啡，精力恢复！AP+1")
                 BuildUI()
             end,
         }
@@ -254,14 +362,12 @@ function BuildActionCard()
         }
     end
 
-    -- ── 广告：翻倍昨日收入 / 经营补贴 ──
+    -- ── 赞助商合作：代售体验（叙事包装 double_income 广告） ──
     local adDoubleIncome = nil
     local lastNet = playerData_.lastNetIncome or 0
     if AdManager.CanWatch("double_income", playerData_.day) then
         local bonus = lastNet > 0 and lastNet or math.max(50, math.floor(playerData_.day * 8))
-        local label = lastNet > 0
-            and ("看广告翻倍昨日收入 +$" .. bonus)
-            or  ("看广告领经营补贴 +$" .. bonus)
+        local label = "🤝 赞助商代售体验 → +$" .. bonus
         adDoubleIncome = AdManager.AdButton {
             sceneId = "double_income", day = playerData_.day,
             text = label,
@@ -270,7 +376,7 @@ function BuildActionCard()
                 playerData_.money = playerData_.money + bonus
                 playerData_.totalEarnings = (playerData_.totalEarnings or 0) + bonus
                 playerData_.lastNetIncome = 0
-                AddLog("🎬 赞助商追加了经营奖励！额外获得$" .. bonus .. "！")
+                AddLog("🤝 赞助商在店里做了产品体验活动，给了你丰厚报酬！+$" .. bonus)
                 BuildUI()
             end,
         }
@@ -407,29 +513,58 @@ function BuildActionCard()
 
     -- ── 3) 高频操作：2x2 网格（48%宽·74px·橙色边框·价格+收益预期） ──
     local gridRow1 = {}
+    local btnMarket_ = nil  -- 逛集市按钮引用（Tab组装用）
+    local btnFlyer_ = nil   -- 贴传单/主线行动按钮引用（Tab组装用）
     if ProgressiveUnlock.IsUnlocked("btn_market_visit") then
         local mktCost = GetCityCost and GetCityCost(50) or 50
-        table.insert(gridRow1, GridBtn {
+        btnMarket_ = GridBtn {
             title = "逛集市", price = "$" .. mktCost,
             reward = "🎲 随机奇遇",
             disabled = noAP or playerData_.money < mktCost,
             reason = playerData_.money < mktCost and "余额不足" or nil,
             onClick = function() DoVisitMarket() end,
-        })
+        }
+        table.insert(gridRow1, btnMarket_)
     end
     if ProgressiveUnlock.IsUnlocked("btn_flyers") then
         local flyCost = GetCityCost and GetCityCost(30) or 30
-        table.insert(gridRow1, GridBtn {
-            title = "贴传单", price = "$" .. flyCost,
-            reward = "↑ 声望 / 曝光",
-            disabled = noAP or playerData_.money < flyCost,
-            reason = playerData_.money < flyCost and "余额不足" or nil,
-            onClick = function() DoPostFlyers() end,
-        })
+        -- P2B: D1-D4 按钮改名为"主线行动"并添加推荐标识
+        local isEarlyDay = (playerData_.day or 1) <= 4
+        local flyerTitle = isEarlyDay and "⭐ 主线行动" or "贴传单"
+        local flyerReward = isEarlyDay and "贴传单·声望↑" or "↑ 声望 / 曝光"
+        -- P2B: Day2-4 主线行动路由（每天不同事件）
+        local curDay = playerData_.day or 1
+        local mainAction = nil  -- {reward, price, onClick, disabled}
+        if curDay == 2 and not playerData_.day2CrisisDone then
+            mainAction = { reward = "⚡ 电费房租·生存抉择", price = "免费", fn = DoDay2MainAction }
+        elseif curDay == 3 and not playerData_.day3KofiDone then
+            mainAction = { reward = "👀 寻找神秘少年", price = "免费", fn = DoDay3MainAction }
+        elseif curDay == 4 and not playerData_.day4CommunityDone then
+            mainAction = { reward = "🏘️ 街区信任·三选抉择", price = "免费", fn = DoDay4MainAction }
+        end
+        local btnPrice = mainAction and mainAction.price or ("$" .. flyCost)
+        local btnReward = mainAction and mainAction.reward or flyerReward
+        local btnDisabled = mainAction and noAP or (noAP or playerData_.money < flyCost)
+        local btnReason = (not mainAction and playerData_.money < flyCost) and "余额不足" or nil
+        btnFlyer_ = GridBtn {
+            title = flyerTitle, price = btnPrice,
+            reward = btnReward,
+            disabled = btnDisabled,
+            reason = btnReason,
+            onClick = function()
+                if mainAction then
+                    mainAction.fn()
+                else
+                    DoPostFlyers()
+                end
+            end,
+        }
+        table.insert(gridRow1, btnFlyer_)
     end
 
     local gridRow2 = {}
-    if #CANDIDATE_POOL > 0 and ProgressiveUnlock.IsUnlocked("btn_recruit") then
+    -- P1-3: D1-D3 隐藏复杂招募入口
+    if #CANDIDATE_POOL > 0 and ProgressiveUnlock.IsUnlocked("btn_recruit") and (playerData_.day or 1) >= 4 then
         local isFull = #teamMembers_ >= 5
         local rctCost = GetCityCost and GetCityCost(200) or 200
         -- 角色组合被动：招募费用折扣（与 ScoutRecruit 保持一致）
@@ -450,7 +585,8 @@ function BuildActionCard()
     local matchDisableReason = nil
     if #teamMembers_ < 2 then matchDisableReason = "需2名队员"
     elseif friendlyMatchToday_ then matchDisableReason = "今日已赛" end
-    if ProgressiveUnlock.IsUnlocked("btn_match") then
+    -- P1-3: D1-D3 隐藏比赛按钮
+    if ProgressiveUnlock.IsUnlocked("btn_match") and (playerData_.day or 1) >= 4 then
     table.insert(gridRow2, GridBtn {
         title = "比赛",
         reward = "↑ 奖金 / 声望",
@@ -471,8 +607,9 @@ function BuildActionCard()
         GenerateDailyCafeEvents()
         local pendingCafe = pendingCafeCount_ or 0
         local totalCafe = cafeEvents_ and #cafeEvents_ or 0
-        local cafeTitle = "网吧实况"
-        local cafeReward = totalCafe > 0 and (pendingCafe > 0 and pendingCafe .. "件待处理" or totalCafe .. "件事件") or "查看经营"
+        -- P1-3: 按钮改名为"处理实况"
+        local cafeTitle = "处理实况"
+        local cafeReward = totalCafe > 0 and (pendingCafe > 0 and pendingCafe .. "件待处理" or "已处理完毕") or "查看经营"
         table.insert(gridRow3, GridBtn {
             title = cafeTitle,
             reward = cafeReward,
@@ -1157,7 +1294,7 @@ function BuildActionCard()
                 -- 💰 看广告 → 下次黄金买卖获得额外收益
                 AdManager.AdButton {
                     sceneId = "gold_trade_bonus", day = playerData_.day,
-                    text = "看广告 → 下次黄金交易额外+20%收益",
+                    text = "🤝 赞助商优惠券 → 下次黄金交易+20%",
                     width = "100%", height = 36, fontSize = 12, borderRadius = PX.radius,
                     backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 25 }, fontColor = { 255, 220, 100, 255 },
                     borderWidth = PX.border, borderColor = { C.goldDim[1], C.goldDim[2], C.goldDim[3], 100 },
@@ -1374,140 +1511,268 @@ function BuildActionCard()
     end
 
     if tab == ACTION_TAB_MANAGE then
-        -- ═══ 🏠 经营 Tab ═══
-        -- 加班区
-        if overtimeBtn then table.insert(cardChildren, overtimeBtn) end
-        -- 比赛等级选择（若存在）
+        -- ═══ 🏠 经营 Tab（核心网吧运营：传单/实况/维护/燃油） ═══
+        -- 比赛等级选择面板（从比赛按钮跳转过来时显示）
         if tierPanel or gameSelectPanel then
             if tierPanel then table.insert(cardChildren, tierPanel) end
             if gameSelectPanel then table.insert(cardChildren, gameSelectPanel) end
         else
-            -- 高频操作（始终可见）
-            local primaryBtns = {}
-            for _, btn in ipairs(gridRow1) do table.insert(primaryBtns, btn) end
-            for _, btn in ipairs(gridRow3) do table.insert(primaryBtns, btn) end
-            if #primaryBtns > 0 then
+            -- 经营核心按钮：贴传单/主线行动 + 处理实况
+            local manageBtns = {}
+            -- 贴传单/主线行动（命名引用，不依赖数组索引）
+            if btnFlyer_ then table.insert(manageBtns, btnFlyer_) end
+            -- 处理实况
+            for _, btn in ipairs(gridRow3) do table.insert(manageBtns, btn) end
+            if #manageBtns > 0 then
                 table.insert(cardChildren, UI.Panel {
                     width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                    children = primaryBtns,
+                    children = manageBtns,
                 })
             end
-
-            -- 可折叠：维护+副业（默认折叠，点击展开）
-            local extraBtns = {}
+            -- 维护按钮（买燃油、维修设备）
             if #maintActions > 0 and ProgressiveUnlock.IsUnlocked("panel_maintain") then
-                for _, btn in ipairs(maintActions) do table.insert(extraBtns, btn) end
-            end
-            if #sideJobActions > 0 and ProgressiveUnlock.IsUnlocked("panel_sidejob") then
-                for _, btn in ipairs(sideJobActions) do table.insert(extraBtns, btn) end
-            end
-            if #extraBtns > 0 then
-                local isFolded = sectionFolded_["manage_extra"] == true  -- 默认展开，用户可收起
-                local foldIcon = isFolded and "▶" or "▼"
-                local extraCount = #extraBtns
                 table.insert(cardChildren, UI.Panel {
-                    width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
-                    paddingVertical = 4, paddingHorizontal = 4,
-                    onClick = function()
-                        sectionFolded_["manage_extra"] = not isFolded
-                        PlaySFX("click")
-                        BuildUI()
-                    end,
-                    children = {
-                        UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 25 }, flex = 1 },
-                        UI.Label { text = foldIcon .. " 维护·副业 (" .. extraCount .. ")",
-                            fontSize = 11, fontColor = { 180, 160, 120, 200 }, flexShrink = 0 },
-                        UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 25 }, flex = 1 },
-                    },
+                    width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                    children = maintActions,
                 })
-                if not isFolded then
-                    table.insert(cardChildren, UI.Panel {
-                        width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                        children = extraBtns,
-                    })
-                end
+            end
+            -- 经营策略支线（定价/主题活动/增值服务）
+            local manageSubQ = TabSubQuests.GetManageActions()
+            if #manageSubQ > 0 then
+                table.insert(cardChildren, SectionTitle("💡", "经营策略"))
+                local mqBtns = {}
+                for _, a in ipairs(manageSubQ) do table.insert(mqBtns, GridBtn(a)) end
+                table.insert(cardChildren, UI.Panel {
+                    width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                    children = mqBtns,
+                })
             end
         end
-        -- 网吧实况展开面板（点击"网吧实况"按钮后才展开）
+        -- 网吧实况展开面板
         if cafePanel then table.insert(cardChildren, cafePanel) end
 
+    elseif tab == ACTION_TAB_HOOD then
+        -- ═══ 🏘️ 街区 Tab（社区关系：逛集市/社交/声望） ═══
+        local hoodBtns = {}
+        -- 逛集市（命名引用，不依赖数组索引）
+        if btnMarket_ then table.insert(hoodBtns, btnMarket_) end
+        -- 社交行动（请吃烤肉、免费招募广告、媒体采访、声望消耗行动）
+        if #socialActions > 0 and ProgressiveUnlock.IsUnlocked("panel_social") then
+            for _, btn in ipairs(socialActions) do table.insert(hoodBtns, btn) end
+        end
+        if #hoodBtns > 0 then
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = hoodBtns,
+            })
+        end
+        -- 街区支线（拜访小贩/社区互助/打探风声/保护）
+        local hoodSubQ = TabSubQuests.GetHoodActions()
+        if #hoodSubQ > 0 then
+            table.insert(cardChildren, SectionTitle("🏘️", "邻里互动"))
+            local hqBtns = {}
+            for _, a in ipairs(hoodSubQ) do table.insert(hqBtns, GridBtn(a)) end
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = hqBtns,
+            })
+        end
+
     elseif tab == ACTION_TAB_TEAM then
-        -- ═══ ⚔️ 团队 Tab ═══
+        -- ═══ ⚔️ 战队 Tab（Dragon Force：招募/比赛/代练/直播） ═══
         if tierPanel or gameSelectPanel then
             if tierPanel then table.insert(cardChildren, tierPanel) end
             if gameSelectPanel then table.insert(cardChildren, gameSelectPanel) end
         else
-            -- 高频操作（招募/比赛 始终可见）
-            if #gridRow2 > 0 then
+            -- 战队核心按钮：招募 + 比赛
+            local teamBtns = {}
+            for _, btn in ipairs(gridRow2) do table.insert(teamBtns, btn) end
+            -- 代练服务 + 直播跑刀（从 sideJobActions 中提取电竞相关）
+            -- 注：这两个按钮在 sideJobActions 的 index 2,3（代练=2，直播=3）
+            -- 通过条件重新构建，确保归类正确
+            if #teamMembers_ >= 1 then
+                table.insert(teamBtns, GridBtn {
+                    title = "🎮 代练服务", price = "AP1",
+                    disabled = noAP,
+                    onClick = function() DoBoostingService() end,
+                })
+            end
+            if #teamMembers_ >= 2 and playerData_.netSpeed >= 2 then
+                table.insert(teamBtns, GridBtn {
+                    title = "📡 直播跑刀", price = "AP1",
+                    disabled = noAP,
+                    onClick = function() DoStreamDeltaForce() end,
+                })
+            end
+            if #teamBtns > 0 then
                 table.insert(cardChildren, UI.Panel {
                     width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                    children = gridRow2,
+                    children = teamBtns,
                 })
             end
-
-            -- 可折叠：社交操作（默认折叠）
-            if #socialActions > 0 and ProgressiveUnlock.IsUnlocked("panel_social") then
-                local isFolded = sectionFolded_["team_social"] == true  -- 默认展开，用户可收起
-                local foldIcon = isFolded and "▶" or "▼"
-                local socialCount = #socialActions
+            -- 战队支线（战术研讨/赏金赛/专项特训）
+            local teamSubQ = TabSubQuests.GetTeamActions()
+            if #teamSubQ > 0 then
+                table.insert(cardChildren, SectionTitle("📚", "队伍培养"))
+                local tqBtns = {}
+                for _, a in ipairs(teamSubQ) do table.insert(tqBtns, GridBtn(a)) end
                 table.insert(cardChildren, UI.Panel {
-                    width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
-                    paddingVertical = 4, paddingHorizontal = 4,
-                    onClick = function()
-                        sectionFolded_["team_social"] = not isFolded
-                        PlaySFX("click")
-                        BuildUI()
-                    end,
-                    children = {
-                        UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 25 }, flex = 1 },
-                        UI.Label { text = foldIcon .. " 社交·声望 (" .. socialCount .. ")",
-                            fontSize = 11, fontColor = { 180, 160, 120, 200 }, flexShrink = 0 },
-                        UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 25 }, flex = 1 },
-                    },
+                    width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                    children = tqBtns,
                 })
-                if not isFolded then
-                    table.insert(cardChildren, UI.Panel {
-                        width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                        children = socialActions,
-                    })
-                end
             end
         end
 
-    elseif tab == ACTION_TAB_MARKET then
-        -- ═══ 🏪 市场 Tab ═══
-        -- 黄金交易（Day 12+）
+    elseif tab == ACTION_TAB_RISK then
+        -- ═══ 💰 风险 Tab（高风险投机：黄金/二手/包场/扩张） ═══
+        -- 黄金交易
         if goldPanel and ProgressiveUnlock.IsUnlocked("panel_gold") then
-            table.insert(cardChildren, SectionTitle("🥇", "黄金交易"))
             table.insert(cardChildren, goldPanel)
         end
-        -- 扩张经营（Day 12+）
+        -- 高风险副业按钮
+        local riskBtns = {}
+        -- 二手淘宝
+        if playerData_.day >= 7 then
+            table.insert(riskBtns, GridBtn {
+                title = "🛒 二手淘宝", price = "AP1 · $50+",
+                disabled = noAP or playerData_.money < 50,
+                onClick = function() DoSecondHandMarket() end,
+            })
+        end
+        -- 接包场
+        if playerData_.computers >= 4 then
+            table.insert(riskBtns, GridBtn {
+                title = "🎉 接包场", price = "AP1",
+                disabled = noAP,
+                onClick = function() DoCafeRental() end,
+            })
+        end
+        if #riskBtns > 0 then
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = riskBtns,
+            })
+        end
+        -- 扩张经营（借钱 + 开分店）
         if #expandActions > 0 and ProgressiveUnlock.IsUnlocked("panel_branch") then
             table.insert(cardChildren, SectionTitle("🏗️", "扩张经营"))
             local ep = SectionPanel(expandActions)
             if ep then table.insert(cardChildren, ep) end
         end
-    end
+        -- 投资支线（信息差套利/合伙经营/期货投机）
+        local riskSubQ = TabSubQuests.GetRiskActions()
+        if #riskSubQ > 0 then
+            table.insert(cardChildren, SectionTitle("📊", "金融投机"))
+            local rqBtns = {}
+            for _, a in ipairs(riskSubQ) do table.insert(rqBtns, GridBtn(a)) end
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = rqBtns,
+            })
+        end
 
-    -- ═══ 以下内容保留在所有Tab之外（向下兼容） ═══
-    -- 团队与社交区块 — 已移入 TEAM tab（上方）
-    if false and #socialActions > 0 and ProgressiveUnlock.IsUnlocked("panel_social") then
-        table.insert(cardChildren, SectionTitle("🤝", "团队社交"))
-        local sop = SectionPanel(socialActions)
-        if sop then table.insert(cardChildren, sop) end
-    end
+    elseif tab == ACTION_TAB_REST then
+        -- ═══ 💼 副业 Tab（赚外快 · 赞助商合作 · 自我提升） ═══
 
-    -- 黄金交易区块 — 已移入 MARKET tab（上方）
-    if false and goldPanel and ProgressiveUnlock.IsUnlocked("panel_gold") then
-        table.insert(cardChildren, SectionTitle("🥇", "黄金交易"))
-        table.insert(cardChildren, goldPanel)
-    end
+        -- 加班按钮（AP耗尽兜底）
+        if overtimeBtn then table.insert(cardChildren, overtimeBtn) end
 
-    -- 扩张经营区块 — 已移入 MARKET tab（上方）
-    if false and #expandActions > 0 and ProgressiveUnlock.IsUnlocked("panel_branch") then
-        table.insert(cardChildren, SectionTitle("🏗️", "扩张经营"))
-        local ep = SectionPanel(expandActions)
-        if ep then table.insert(cardChildren, ep) end
+        -- ────────────────────────────────────────
+        -- 第一段：赚外快（修手机 + 摆摊/快递/补习）
+        -- ────────────────────────────────────────
+        table.insert(cardChildren, SectionTitle("💰", "赚外快"))
+        local jobBtns = {}
+        -- 修手机（核心安全收入，Day1 可用）
+        table.insert(jobBtns, GridBtn {
+            title = "📱 修手机", price = "AP1",
+            reward = "+$" .. (GetCityCost and math.floor(GetCityCost(35)) or 35),
+            disabled = noAP,
+            onClick = function() DoPhoneRepair() end,
+        })
+        -- 新副业（Day5/8/12 逐步解锁）
+        local sideJobs = TabSubQuests.GetSideJobActions()
+        for _, a in ipairs(sideJobs) do
+            table.insert(jobBtns, GridBtn(a))
+        end
+        if #jobBtns > 0 then
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = jobBtns,
+            })
+        end
+
+        -- ────────────────────────────────────────
+        -- 第二段：赞助商合作（Day5+ 解锁，叙事包装广告）
+        -- ────────────────────────────────────────
+        if ProgressiveUnlock.IsUnlocked("panel_sponsor") then
+            table.insert(cardChildren, SectionTitle("🤝", "赞助商合作"))
+
+            local sponsorBtns = {}
+
+            -- 帮贴海报 → 额外AP（原 extra_ap 广告）
+            if noAP and AdManager.CanWatch("extra_ap", playerData_.day) then
+                table.insert(sponsorBtns, AdManager.AdButton {
+                    sceneId = "extra_ap", day = playerData_.day,
+                    text = "🪧 帮贴海报 → 精力恢复+1AP",
+                    height = 40, fontSize = 13,
+                    onReward = function()
+                        playerData_.actionPoints = playerData_.actionPoints + 1
+                        AddLog("🤝 帮赞助商贴了广告海报，对方请你喝了杯咖啡，精力恢复！AP+1")
+                        BuildUI()
+                    end,
+                })
+            end
+
+            -- 代售体验 → 翻倍收入（原 double_income 广告）
+            if adDoubleIncome then
+                table.insert(sponsorBtns, adDoubleIncome)
+            end
+
+            -- Day 10+: 品牌活动日赞助（sponsor_gift 广告位）
+            if (playerData_.day or 1) >= 10 and AdManager.CanWatch("sponsor_gift", playerData_.day) then
+                local giftBonus = 30 + math.floor((playerData_.day or 1) * 3)
+                table.insert(sponsorBtns, AdManager.AdButton {
+                    sceneId = "sponsor_gift", day = playerData_.day,
+                    text = "🎁 品牌赞助活动 → +$" .. giftBonus .. " +声望10",
+                    height = 40, fontSize = 13,
+                    onReward = function()
+                        playerData_.money = (playerData_.money or 0) + giftBonus
+                        playerData_.totalEarnings = (playerData_.totalEarnings or 0) + giftBonus
+                        playerData_.reputation = (playerData_.reputation or 0) + 10
+                        AddLog("🎁 赞助商在你店里办了个小活动，给了赞助费$" .. giftBonus .. "，还带来不少人气！声望+10")
+                        BuildUI()
+                    end,
+                })
+            end
+
+            if #sponsorBtns > 0 then
+                table.insert(cardChildren, UI.Panel {
+                    width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                    children = sponsorBtns,
+                })
+            else
+                table.insert(cardChildren, UI.Label {
+                    text = "今日赞助商暂无合作需求，明天再看看",
+                    fontSize = 11, fontColor = { 140, 130, 110, 200 },
+                    width = "100%", textAlign = "center",
+                    marginTop = 4, marginBottom = 4,
+                })
+            end
+        end
+
+        -- ────────────────────────────────────────
+        -- 第三段：学习充电（听广播学技术/今天早歇/市场调研）
+        -- ────────────────────────────────────────
+        local restSubQ = TabSubQuests.GetRestActions()
+        if #restSubQ > 0 then
+            table.insert(cardChildren, SectionTitle("📖", "学习充电"))
+            local rstBtns = {}
+            for _, a in ipairs(restSubQ) do table.insert(rstBtns, GridBtn(a)) end
+            table.insert(cardChildren, UI.Panel {
+                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
+                children = rstBtns,
+            })
+        end
     end
 
     -- ── 日记模块（已移至"日记"Tab，不在主页操作区显示） ──
@@ -1761,14 +2026,12 @@ function BuildCompactActions()
         },
     }
 
-    -- ── 广告区 ──
+    -- ── 赞助商合作（紧凑版） ──
     local adDoubleIncome = nil
     local lastNet = playerData_.lastNetIncome or 0
     if AdManager.CanWatch("double_income", playerData_.day) then
         local bonus = lastNet > 0 and lastNet or math.max(50, math.floor(playerData_.day * 8))
-        local label = lastNet > 0
-            and ("看广告翻倍昨日收入 +$" .. bonus)
-            or  ("看广告领经营补贴 +$" .. bonus)
+        local label = "🤝 赞助商代售体验 → +$" .. bonus
         adDoubleIncome = AdManager.AdButton {
             sceneId = "double_income", day = playerData_.day,
             text = label, height = 36, fontSize = 12,
@@ -1776,7 +2039,7 @@ function BuildCompactActions()
                 playerData_.money = playerData_.money + bonus
                 playerData_.totalEarnings = (playerData_.totalEarnings or 0) + bonus
                 playerData_.lastNetIncome = 0
-                AddLog("🎬 赞助商追加了经营奖励！额外获得$" .. bonus .. "！")
+                AddLog("🤝 赞助商在店里做了产品体验活动，给了你丰厚报酬！+$" .. bonus)
                 BuildUI()
             end,
         }
@@ -1786,10 +2049,10 @@ function BuildCompactActions()
     if noAP and AdManager.CanWatch("extra_ap", playerData_.day) then
         adExtraAP = AdManager.AdButton {
             sceneId = "extra_ap", day = playerData_.day,
-            text = "看视频多干一件事 +1AP", height = 36, fontSize = 12,
+            text = "🪧 帮贴海报 → +1AP", height = 36, fontSize = 12,
             onReward = function()
                 playerData_.actionPoints = playerData_.actionPoints + 1
-                AddLog("🎬 赞助商的能量饮料让你恢复了精力！行动点+1")
+                AddLog("🤝 帮赞助商贴了海报，喝了杯咖啡精力恢复！AP+1")
                 BuildUI()
             end,
         }
@@ -2108,7 +2371,7 @@ function BuildCompactActions()
         if AdManager.CanWatch("free_repair", playerData_.day) then
             table.insert(maintActions, AdManager.AdButton {
                 sceneId = "free_repair", day = playerData_.day,
-                text = "看视频免费维修 省$" .. repairCost,
+                text = "🔧 赞助商技术支持 → 免费维修省$" .. repairCost,
                 height = 34, fontSize = 11,
                 onReward = function()
                     local before = playerData_.equipCondition or 0
@@ -2157,15 +2420,15 @@ function BuildCompactActions()
             onClick = function() DoTeamBBQ() end,
         })
     end
-    -- 广告：免费招募队员
+    -- 赞助商：人才合作（免费招募）
     if #CANDIDATE_POOL > 0 and AdManager.CanWatch("recruit_discount", playerData_.day) then
-        local adLabel = #teamMembers_ >= 5 and "看视频免费替换队员（省$200）" or "看视频免费招募一次（省$200）"
+        local adLabel = #teamMembers_ >= 5 and "🤝 人才猎头推荐 → 免费换人" or "🤝 人才猎头推荐 → 免费招募"
         table.insert(socialActions, AdManager.AdButton {
             sceneId = "recruit_discount", day = playerData_.day,
             text = adLabel, height = 34, fontSize = 11,
             onReward = function()
                 playerData_.actionPoints = playerData_.actionPoints + 1
-                AddLog("🎬 赞助商赞助了招募费用！这次找人不花钱！")
+                AddLog("🤝 赞助商旗下猎头帮你找到了人选！这次招募费全免！")
                 ScoutRecruit()
             end,
         })
@@ -2173,10 +2436,10 @@ function BuildCompactActions()
     if AdManager.CanWatch("reputation_ad", playerData_.day) then
         table.insert(socialActions, AdManager.AdButton {
             sceneId = "reputation_ad", day = playerData_.day,
-            text = "接受媒体采访 声望+20", height = 34, fontSize = 11,
+            text = "📰 赞助商安排媒体采访 → 声望+20", height = 34, fontSize = 11,
             onReward = function()
                 playerData_.reputation = playerData_.reputation + 20
-                AddLog("🎬 赞助商安排了媒体采访！声望+20")
+                AddLog("📰 赞助商合作媒体来做了专访，你的知名度大增！声望+20")
                 BuildUI()
             end,
         })

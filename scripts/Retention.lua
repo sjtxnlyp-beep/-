@@ -7,6 +7,7 @@
 local IdleEngine = require("IdleEngine")
 local PrestigeSystem = require("PrestigeSystem")
 local NPCStorylines = require("NPCStorylines")
+local ProgressiveUnlock = require("ProgressiveUnlock")
 
 local Retention = {}
 
@@ -49,76 +50,272 @@ local TUTORIAL_EVENTS = {
             },
         },
         {
-            id = "tut_rival_appears", category = "business", rarity = "common",
-            title = "🏪 对面来了个狠角色",
-            desc = "下午，一辆黑色SUV停在街对面。一个戴金表的胖子下了车，指着你的网吧对手下说了几句话，然后大笑着走进对面的空铺面。\n\n隔壁杂货店老板凑过来低声说：\"那是 Victor，瓦坎达维尔的'网吧大王'。听说他要在对面开分店......你最好小心点。\"",
+            id = "tut_first_evening", category = "social", rarity = "common",
+            title = "🌆 第一天的黄昏",
+            desc = "太阳快落山了，街上飘来烤玉米的香味。隔壁杂货店老板娘 Ama 端来一碗花生汤：\n\n\"新来的，第一天辛苦了。我们这条街的规矩——邻居开张第一天，得送碗汤。\"\n\n她看了看你的网吧：\"不错，收拾得挺干净。有什么需要帮忙的，吱一声。\"",
             type = "choice",
             choices = {
-                { text = "😤 哼，我不怕竞争，用实力说话",
-                  effect = function() playerData_.reputation = playerData_.reputation + 5; playerData_.karma = playerData_.karma + 1 end,
-                  result = function() return "你握紧了拳头。Dragon Net 是你的梦想，谁也别想轻易夺走。\n\n从今天起，你得加快脚步了。升级设备、招募队员、参加比赛——每一步都是在为生存而战！" end },
-                { text = "😰 这可不妙......得想想办法",
-                  effect = function() playerData_.money = playerData_.money + 50 end,
-                  result = function() return "你翻出存钱罐里的应急资金。虽然紧张，但你知道只要客户认可你，就没人能轻易抢走他们。\n\n接下来的日子会更艰难，但也更刺激。准备好迎接挑战吧！" end },
+                { text = "🙏 \"太感谢了！以后有空来免费上网\"",
+                  effect = function() playerData_.reputation = playerData_.reputation + 3; playerData_.karma = (playerData_.karma or 0) + 1 end,
+                  result = function() return "Ama 笑了：\"我可不会上网，但我侄子天天缠着我要去网吧。以后让他来你这里，我放心。\"\n\n第一天就有了一个善意的邻居。这条街，也许没那么陌生。\n\n💡 提示：邻里关系很重要，好的街坊能在关键时刻帮你大忙！" end },
+                { text = "😊 接过汤，礼貌道谢",
+                  effect = function() playerData_.karma = (playerData_.karma or 0) + 1 end,
+                  result = function() return "你端着热汤坐在门口喝完。Ama 回去了，但临走说了句：\"这条街的人都不错，就是……对面那个空铺面，听说有人盯上了。\"\n\n她没多说。你记下了这句话。\n\n💡 提示：注意周围环境的变化，有些事情会在未来几天慢慢浮出水面。" end },
             },
         },
     },
+    -- ═══ P2: Day2 —— 电费房租压力，经营抉择 ═══
     [2] = {
         {
-            id = "tut_merchant_visit", category = "business", rarity = "common",
-            title = "💼 路过的商人",
-            desc = "一个穿着西装的中年人走了进来。\"我是做二手电子设备生意的。听说你这里新开了网吧？我有些好东西可以给你看看——价格绝对公道。\"",
+            id = "p2_power_crisis", category = "business", rarity = "common",
+            image = "image/day2_rent_crisis_20260615054239.png",
+            title = "⚡ 电费和房租的双重暴击",
+            desc = "一大早，房东 Musa 的儿子拍着门喊：\"月底到了！房租 $150，水电 $80，今天不交就锁门！\"\n\n你翻了翻口袋，昨天刚赚的钱还热乎着。这一刀下去，可能连明天的网费都交不起。\n\n更糟糕的是——隔壁传来发电机的轰鸣声。这个街区经常停电，而你连发电机都没有。",
             type = "choice",
             choices = {
-                { text = "💰 花 $200 买一批二手鼠标垫和耳机",
-                  effect = function() playerData_.money = playerData_.money - 200; playerData_.reputation = playerData_.reputation + 8; trafficBonus_ = trafficBonus_ + 3 end,
-                  result = function() return "新装备摆上桌面，整个网吧看起来专业多了。客人们纷纷夸赞！\n\n💡 提示：升级页面有更多装备可以购买——椅子、网速、空调都能提升体验和收入！" end },
-                { text = "✋ 算了，我目前资金紧张",
-                  effect = function() end,
-                  result = function() return "商人留下了名片就走了。\"下次有好货我再来找你。\"\n\n💡 提示：点击底部的「升级」标签页查看所有可用升级！合理投资是致富关键。" end },
-            },
-        },
-        {
-            id = "tut_recruit_hint", category = "social", rarity = "common",
-            title = "👥 Kofi 主动来敲门了",
-            desc = "\"砰砰砰！\"一大早，门都还没开，外面就有人在拍门。你打开门，一个瘦高的年轻人满头是汗：\n\n\"老板！我叫 Kofi！昨天路过看到你在收拾网吧，我就知道——这里要搞电竞的对不对？！我三角洲行动省服排名第47，你看看我的战绩——求你了，让我加入！\"",
-            type = "choice",
-            choices = {
-                { text = "🤝 好小子，有这热情就行！欢迎加入",
+                { text = "💰 硬扛：全额交租，先活下来", hint = "现金-$230 · 安全经营",
+                  ethics = { moneyVsPeople = -1 },
+                  effect = function() playerData_.money = playerData_.money - 230; AddLog("💸 交了租金 $230，口袋空了但不用搬家。") end,
+                  result = function() return "Musa 的儿子数完钱点了点头。\"下月准时啊。\"\n\n你松了口气，但看着见底的钱包发愁——得多贴几张传单了。" end },
+                { text = "🔧 投资：花 $180 买二手发电机", hint = "现金-$180 · 停电不怕 · 欠租风险",
+                  ethics = { resultVsProcess = 1 },
                   effect = function()
-                      playerData_.reputation = playerData_.reputation + 5
-                      -- 直接加入第一个队员 Kofi
-                      if CANDIDATE_POOL and #CANDIDATE_POOL > 0 and #teamMembers_ < 5 then
-                          local kofi = table.remove(CANDIDATE_POOL, 1)
-                          kofi.name = "Kofi"
-                          kofi.skill = math.max(kofi.skill or 50, 55)
-                          table.insert(teamMembers_, kofi)
-                          AddLog("🎉 Kofi 正式加入了 Dragon Net 战队！")
-                      end
+                      playerData_.money = playerData_.money - 180
+                      playerData_.hasGenerator = true
+                      AddLog("🔧 买了发电机！以后停电也不怕了。但房租......先欠着？")
                   end,
-                  result = function() return "Kofi 激动得差点把你的门板拍碎。\"老板万岁！！我今天就开始练！\"\n\n他二话不说坐到了1号机前开始排位。看来你的第一个队员，到手了。\n\n💡 Kofi 已加入战队！明天你就可以带他去比赛了。" end },
-                { text = "🤔 你先别急，我考虑考虑",
-                  effect = function() playerData_.reputation = playerData_.reputation + 2 end,
-                  result = function() return "Kofi 有点失落但没有放弃：\"好吧......但我明天还会来的！老板你不会后悔的！\"\n\n他恋恋不舍地走了，看来你随时可以招募他。\n\n💡 提示：在经营页面使用「招募队员」可以随时招人。队员能参加比赛赢奖金！" end },
+                  result = function() return "你扛着一台二手发电机回来，满头大汗。邻居投来羡慕的目光。\n\n但 Musa 的儿子还会回来的。你跟他说'下周补上'，他没说话，只是看了你一眼。\n\n💡 发电机已获得！停电时也能正常营业了。" end },
+                { text = "🤝 赊账：找邻居杂货店老板娘借 $100", hint = "人情债+1 · 缓解压力 · 欠人情",
+                  ethics = { integrationVsExtraction = 1 },
+                  effect = function()
+                      playerData_.money = playerData_.money - 130
+                      playerData_.karma = (playerData_.karma or 0) + 1
+                      playerData_.neighborDebt = (playerData_.neighborDebt or 0) + 100
+                      AddLog("🤝 邻居借了 $100，人情债要还的。先交了 $130 给 Musa。")
+                  end,
+                  result = function() return "杂货店老板娘 Ama 把钱递给你时叹了口气：\"新来的都不容易。下个月还我就行，不急。\"\n\n你交了 $130 给 Musa（先还一部分），剩下的下次补。欠着人情，但至少今天能安心开门了。\n\n💡 欠邻居 $100，记得还。" end },
             },
         },
     },
+    -- ═══ P2: Day3 —— Kofi 影子：顾客议论中的天才 ═══
     [3] = {
         {
-            id = "tut_first_match", category = "social", rarity = "common",
-            title = "🏆 第一场友谊赛",
-            desc = "Kofi 兴奋地跑进来：\"老板！隔壁街的 Phoenix 战队想约一场友谊赛！他们说我们是新队伍，肯定不敢接——你说怎么办？\"",
+            id = "p2_kofi_shadow", category = "social", rarity = "common",
+            image = "image/day3_kofi_shadow_20260615054416.png",
+            title = "👀 角落里的传说",
+            desc = "打烊前整理电脑时，你发现角落那台最旧的机器有异常——\n\n屏幕上还留着一个三角洲行动的战绩页面：14杀3死，MVP。用这台帧率不到30的破机器？\n\n旁边的常客 Kwame 凑过来：\"老板你不知道吗？下午有个穿校服的瘦高少年偷偷进来的，没买时间就坐那打了半小时。我们几个围着看的——那手速，不是正常人。\"\n\n桌上还留着一副旧耳机和一张欠费条：\"Kofi · 应付 $3\"。\n\n你在心里记下了这个名字。明天他可能还会来——怎么处理？",
             type = "choice",
             choices = {
-                { text = "💪 接！让他们看看我们的实力",
-                  effect = function() playerData_.reputation = playerData_.reputation + 8; playerData_.karma = playerData_.karma + 1 end,
-                  result = function() return "Kofi 激动地去通知队员们了。\"老板放心，我们一定打出名声来！\"\n\n💡 提示：现在可以在经营页面点击「比赛」参加友谊赛了！赢了有奖金和声望。" end },
-                { text = "🤔 再练练吧，等准备充分了再说",
-                  effect = function() playerData_.reputation = playerData_.reputation + 3 end,
-                  result = function() return "Kofi 有点失望但点了点头。\"也是，训练才是基础。\"\n\n💡 提示：你可以先用「训练」提升队员能力，然后再参加比赛！" end },
+                { text = "🎁 给他留一小时免费机时", hint = "现金机会-$3 · 关系/信任倾向+",
+                  ethics = { moneyVsPeople = 1 },
+                  effect = function()
+                      playerData_.kofiMet = true
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 2
+                      AddLog("🎁 你在角落机器上贴了张条：\"Kofi——明天有一小时免费。\" 希望他看得到。")
+                  end,
+                  result = function() return "你撕了那张欠费条，在键盘上贴了张小纸条：\"Kofi——明天来找老板，有一小时免费。\"\n\nKwame 看着你笑了：\"老板你心善。那小子家里穷，但手上功夫是真的。\"\n\n💡 埋下线索：如果 Kofi 明天来了，你的善意可能改变他的人生轨迹。" end },
+                { text = "💰 先按正常收费，欠了就要还", hint = "现金+$3 · Kofi 信任机会↓",
+                  ethics = { moneyVsPeople = -1 },
+                  effect = function()
+                      playerData_.kofiMet = true
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) - 1
+                      playerData_.money = playerData_.money + 3
+                      AddLog("💰 你把欠费条留着了。规矩就是规矩，天才也得付钱。")
+                  end,
+                  result = function() return "你把那张欠费条整整齐齐夹进账本。$3 不多，但规矩就是规矩。\n\nKwame 耸耸肩：\"也是，做生意哪有免费的。不过那小子可能不敢来了。\"\n\n你看了眼那个 14 杀的战绩，心里有点犹豫。但生意就是生意。\n\n⚠️ Kofi 信任度降低。他可能更不敢接触你。" end },
             },
         },
-        -- 今日委托教程已暂停
+    },
+    -- ═══ P2: Day4 —— 街区信任事件 ═══
+    [4] = {
+        {
+            id = "p2_community_trust", category = "social", rarity = "common",
+            image = "image/day4_community_trust_20260615054415.png",
+            title = "🏘️ 街区规矩",
+            desc = "傍晚打烊时，对面五金店的 Kwaku 老板带着三个街坊找上门。\n\n\"兄弟，我们这条街有个规矩——新来的要请大家喝一轮。不是什么大钱，就是个意思。让大家知道你不是来捞一票就跑的。\"\n\n他看了看你的网吧：\"或者……你也可以帮社区做点事。前面学校的电脑坏了半年了，没人会修。\"",
+            type = "choice",
+            choices = {
+                { text = "🍺 请一轮：花 $60 请街坊喝酒", hint = "现金-$60 · 街区好感大增",
+                  ethics = { integrationVsExtraction = 2 },
+                  effect = function()
+                      playerData_.money = playerData_.money - 60
+                      playerData_.reputation = playerData_.reputation + 10
+                      playerData_.karma = (playerData_.karma or 0) + 2
+                      AddLog("🍺 请了街坊一轮酒，大家拍着你肩膀说'自己人'。")
+                  end,
+                  result = function() return "晚上在街角的小酒馆，你请了十来个人喝了一轮。Kwaku 举杯：\"从今天起，Dragon Net 就是我们街的一份子！\"\n\n有人开始叫你\"中国老板\"，语气里带着亲切。\n\n💡 街区信任提升！未来可能获得邻居帮助。" end },
+                { text = "🔧 帮学校修电脑（花半天时间）", hint = "AP-1 · 长期口碑 · 学生客源",
+                  ethics = { integrationVsExtraction = 2, moneyVsPeople = 1 },
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation + 12
+                      playerData_.karma = (playerData_.karma or 0) + 3
+                      AddLog("🔧 花了半天去学校修电脑。校长握着你的手说会介绍学生来上网。")
+                  end,
+                  result = function() return "你扛着工具箱去了学校。六台旧电脑，有的只是灰尘堵了风扇，有的要换内存条。\n\n忙了半天，孩子们围着你叽叽喳喳。校长激动地握着你的手：\"我会让学生们放学后来你那里做作业！\"\n\n💡 街区信任大幅提升！学校客源 +1" end },
+                { text = "💼 \"我就做生意，不搞社交\"", hint = "省钱 · 街区关系冷淡",
+                  ethics = { integrationVsExtraction = -2 },
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation - 3
+                      AddLog("💼 你婉拒了。Kwaku 看了你一眼，没说什么就走了。")
+                  end,
+                  result = function() return "Kwaku 点了点头，带着人走了。你听到门外有人低声说：\"又一个只想赚钱的外国人。\"\n\n你关上门，觉得这没什么。但第二天，原本会打招呼的邻居开始对你视而不见了。\n\n⚠️ 街区关系冷淡。未来遇到麻烦时，没人会帮你。" end },
+            },
+        },
+    },
+    -- ═══ P2: Day5 —— Kofi 正式登场，建立信任 ═══
+    [5] = {
+        {
+            id = "p2_kofi_arrives", category = "social", rarity = "rare",
+            title = "🧑🏿 Kofi 来了",
+            desc = "下午三点，那个少年又出现在门口。这次他没有偷偷摸摸，而是规规矩矩站在柜台前。\n\n\"老板……我叫 Kofi。前天被你看到了。\" 他搓着手，很紧张。\"我知道没买时间就碰电脑不对，对不起。\"\n\n停了一下：\"但是……我是真的想打职业。我爸说打游戏是废物，不让我碰电脑。我只有偷偷来这里才能练。\"\n\n他从口袋里掏出一张皱巴巴的纸——上面密密麻麻写着游戏笔记、战术分析、手速训练计划。全是手写的。\n\n\"老板，我不要工资。你让我留下来练就行。我什么都愿意干。\"",
+            type = "choice",
+            choices = {
+                { text = "🤝 \"留下吧。每天打烊后给你一小时免费练\"", hint = "Kofi 信任+2 · 每日电费+$5",
+                  ethics = { moneyVsPeople = 2 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 2
+                      playerData_.kofiJoined = true
+                      ProgressiveUnlock.MarkStoryCompleted("kofi_joined")
+                      playerData_.reputation = playerData_.reputation + 5
+                      AddLog("🤝 你让 Kofi 留下了。他的眼睛亮了。每天打烊后，他会来练一小时。")
+                  end,
+                  result = function() return "Kofi 呆了两秒，然后深深鞠了一躬。\"谢谢老板！我不会让你失望的！\"\n\n他跑到角落那台机器前坐下，双手放在键盘上——那个动作熟练得像回到了家。\n\n你看了眼电表。多一小时电费……算了，就当投资吧。\n\n💡 Kofi 开始在你的网吧训练。他还不是队员，但种子已经种下。" end },
+                { text = "🤔 \"我考虑一下。你先帮我干活顶替\"", hint = "Kofi 信任+1 · 获得免费帮手",
+                  ethics = { resultVsProcess = 1 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 1
+                      playerData_.kofiJoined = true
+                      ProgressiveUnlock.MarkStoryCompleted("kofi_joined")
+                      AddLog("🤔 你让 Kofi 先帮忙打杂。他干活特别勤快，一边擦桌子一边偷看屏幕。")
+                  end,
+                  result = function() return "Kofi 用力点头：\"什么活都行！扫地、搬东西、装系统——我都会！\"\n\n接下来一个小时，他把网吧里里外外擦了一遍，比你自己收拾得还干净。\n\n忙完后他小心翼翼问：\"老板……那我能用那台最旧的练十分钟吗？\"\n\n💡 Kofi 成为你的帮手。他渴望上机的眼神，让你想起了什么。" end },
+                { text = "✋ \"对不起，我这里不养闲人\"", hint = "省事 · Kofi 离开",
+                  ethics = { moneyVsPeople = -2 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) - 1
+                      AddLog("✋ 你拒绝了 Kofi。他低着头走了，手里还攥着那张笔记。")
+                  end,
+                  result = function() return "Kofi 的表情像是灯灭了一样。\"好的……打扰了。\"\n\n他转身走出门，经过那台角落的电脑时手指碰了碰屏幕边缘，然后收回去了。\n\n门关上后，你看到他写的那张笔记掉在了地上。捡起来一看——上面的战术分析比你见过的很多职业选手都细。\n\n⚠️ Kofi 离开了。他不会轻易再回来。" end },
+            },
+        },
+    },
+    -- ═══ P2: Day6 —— 第一次训练/夜训 ═══
+    [6] = {
+        {
+            id = "p2_first_training", category = "social", rarity = "common",
+            title = "🎮 第一次夜训",
+            desc = function()
+                if (playerData_.kofiJoined) then
+                    return "晚上十一点，最后一个客人走了。Kofi 从后门探出头：\"老板，可以了吗？\"\n\n他坐到电脑前，手指在键盘上预热。你第一次认真看他打一整局——\n\n那个走位、那个反应速度……这不是练出来的，是天赋。但设备太差了，好几次他明显能杀掉对手，却因为帧率卡顿错过了时机。\n\n\"老板，如果有好一点的电脑……我能打得更好。\" 他小声说。"
+                else
+                    return "晚上关门后，你在清理电脑时发现角落那台机器还开着——屏幕上是一个三角洲行动的回放录像。14杀3死，MVP。\n\n记录的玩家ID：\"KofiGod_04\"。\n\n你想起前天那个少年。他虽然被你拒绝了，但显然还是找到了办法偷偷练习。\n\n门口传来敲门声——Kwame 探头进来：\"老板，那个 Kofi 刚才来找过你。他说……如果你改主意了，他还愿意回来。\""
+                end
+            end,
+            type = "choice",
+            choices = {
+                { text = "🎯 免费让他练到凌晨", hint = "电费+$10 · Kofi 信任大增 · 真诚投入",
+                  ethics = { moneyVsPeople = 2, resultVsProcess = -1 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 3
+                      playerData_.money = playerData_.money - 10
+                      playerData_.kofiJoined = true
+                      ProgressiveUnlock.MarkStoryCompleted("kofi_joined")
+                      AddLog("🎮 Kofi 练到了凌晨两点。走的时候他说：\"老板，我一定不会让你白付电费。\"")
+                  end,
+                  result = function() return "你泡了两杯速溶咖啡，一杯给自己，一杯给他。\n\n凌晨两点，他终于站起来，揉了揉眼睛。\"老板……谢谢。今天我进步了。\"\n\n他走进黑夜里，你关了灯。电表多转了十块钱的电，但你觉得值。\n\n💡 Kofi 信任大幅提升。他开始把你当自己人了。" end },
+                { text = "💵 收他半价：$15 / 晚训练", hint = "回收成本 · Kofi 接受但吃力",
+                  ethics = { moneyVsPeople = -1 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 1
+                      playerData_.money = playerData_.money + 15
+                      playerData_.kofiJoined = true
+                      ProgressiveUnlock.MarkStoryCompleted("kofi_joined")
+                      AddLog("💵 Kofi 交了 $15 训练费。他从口袋里一张一张数出来的，都是零钱。")
+                  end,
+                  result = function() return "Kofi 犹豫了一下，从口袋里掏出一把零钱，一张张数出来。$15，全是小额纸币。\n\n\"没关系，老板，应该的。\" 他笑了笑坐下开始练。\n\n你注意到他今天没吃晚饭——省下来的钱，应该就是这$15。\n\n💡 Kofi 付费训练。他能坚持多久？" end },
+                { text = "📣 \"你帮我拍训练视频发网上，算抵电费\"", hint = "免费宣传 · Kofi 可能被其他战队发现",
+                  ethics = { resultVsProcess = 1 },
+                  effect = function()
+                      playerData_.kofiTrust = (playerData_.kofiTrust or 0) + 1
+                      playerData_.reputation = playerData_.reputation + 8
+                      playerData_.kofiExposed = true
+                      playerData_.kofiJoined = true
+                      ProgressiveUnlock.MarkStoryCompleted("kofi_joined")
+                      AddLog("📣 Kofi 的训练视频发到了网上。反响不错——但也可能引来别人的注意。")
+                  end,
+                  result = function() return "你用手机录了 Kofi 的几个精彩操作，配上文字发到了本地游戏群里。\n\n一小时内就有几十个点赞和转发。评论里有人问：\"这小子在哪个战队？我们队缺人！\"\n\n Kofi 没看到这些评论。但你知道——好消息传得快，坏消息也是。\n\n💡 声望提升！但 Kofi 的存在可能被竞争对手注意到。" end },
+            },
+        },
+    },
+    -- ═══ P2: Day7 —— 首周结算 + Week2 预告 ═══
+    [7] = {
+        {
+            id = "p2_week1_summary", category = "business", rarity = "common",
+            title = "📊 第一周总结",
+            desc = function()
+                local money = playerData_.money or 0
+                local rep = playerData_.reputation or 0
+                local kofi = playerData_.kofiTrust or 0
+                local karma = playerData_.karma or 0
+                return "七天了。你从一个拖着行李箱的异乡人，变成了这条街上\"那个开网吧的中国老板\"。\n\n"
+                    .. "📦 现金：$" .. math.floor(money) .. "\n"
+                    .. "⭐ 街区口碑：" .. math.floor(rep) .. "\n"
+                    .. "🤝 邻里关系：" .. (karma >= 3 and "融入中" or karma >= 1 and "还行" or "生疏") .. "\n"
+                    .. "🧑🏿 Kofi 信任：" .. (kofi >= 3 and "很信你" or kofi >= 1 and "愿意跟你" or "不确定") .. "\n"
+                    .. "\n但门外传来了消息——对面那个空铺面，有人在装修了。隔壁 Ama 悄声说：\"听说是 Victor 的人。他要在你对面开一家更大的网吧。\"\n\n下周不会太平。"
+            end,
+            type = "choice",
+            choices = {
+                { text = "💪 \"来就来，我不怕竞争\"", hint = "士气提升 · 直面挑战",
+                  ethics = { legalVsGray = 1 },
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation + 5
+                      AddLog("💪 第一周结束。Victor 的阴影已经到了街对面——但你不怕。")
+                  end,
+                  result = function() return "你深吸一口气，看了看自己的网吧——三台旧电脑、一台发电机、贴满墙的传单。\n\n简陋，但这是你的。\n\n\"Dragon Net Cafe 不会输。\" 你对自己说。\n\n⚡ Week 2 预告：Victor 的 Gold Net 即将开业。价格战、挖人、抢客……准备好了吗？" end },
+                { text = "🤔 \"得想想怎么差异化......\"", hint = "策略思维 · 可能发现新路",
+                  ethics = { resultVsProcess = 1 },
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation + 3
+                      playerData_.karma = (playerData_.karma or 0) + 1
+                      AddLog("🤔 第一周结束。你在笔记本上写下了几个应对 Victor 的想法。")
+                  end,
+                  result = function() return "你在本子上写下了几个点：\n\n• Victor 有钱，但我有人情\n• 他的客人是消费者，我的客人可能变成战友\n• 电竞=社区，不只是生意\n\n也许……Kofi 就是你最大的差异化。\n\n⚡ Week 2 预告：Victor 的阴影逼近。但你有他没有的东西——一个有天赋的少年，和一条街的人情。" end },
+            },
+        },
+    },
+    -- P0-4: Victor 初次交锋提示（D8）
+    [8] = {
+        {
+            id = "victor_first_encounter", category = "social", rarity = "rare",
+            title = "😈 不速之客",
+            desc = "下午三点，一辆黑色 SUV 停在你门口。车门打开，一个穿着名牌polo衫的中年男人走了进来。\n\n他环顾四周，嘴角微微扯了扯——那是一种看不起人才会有的笑。\n\n\"这就是……Dragon Net Cafe？\"他拍了拍你的1号机屏幕。\"有意思。听说你们还搞了个小战队？\"\n\n他递出一张烫金名片：Victor Mensah — Gold Net Cafe Group, CEO。\n\n\"我就住街对面。以后……多指教。\"",
+            type = "choice",
+            choices = {
+                { text = "😤 \"指教不敢当。来者是客，有事说事。\"",
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation + 3
+                      playerData_.karma = (playerData_.karma or 0) + 1
+                      -- P0-6: 伦理追踪 —— 硬气回应 = 正直
+                      if playerData_.ethicsLedger then
+                          playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray + 1
+                          playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople + 1
+                      end
+                      table.insert(playerData_.ethicsKeyChoices or {}, { day = 8, choiceId = "victor_firm", delta = "+legalVsGray +moneyVsPeople" })
+                  end,
+                  result = function() return "Victor 笑了一下，那笑容里有三分欣赏七分轻蔑。\n\n\"有骨气。不过光有骨气活不下去的。\"\n\n他转身走到门口又停了一下：\"我的 Gold Net 下个月要搞周年庆大促。你……自求多福吧。\"\n\n门在他身后关上。Kofi从后面冒出来：\"老板……那人什么来头？\"" end },
+                { text = "🤝 \"Victor 先生，请坐。喝杯什么？\"",
+                  effect = function()
+                      playerData_.reputation = playerData_.reputation + 1
+                      -- P0-6: 伦理追踪 —— 圆滑应对 = 中性偏实用
+                      if playerData_.ethicsLedger then
+                          playerData_.ethicsLedger.resultVsProcess = playerData_.ethicsLedger.resultVsProcess - 1
+                      end
+                      table.insert(playerData_.ethicsKeyChoices or {}, { day = 8, choiceId = "victor_polite", delta = "-resultVsProcess" })
+                  end,
+                  result = function() return "Victor 没坐，只是又看了一圈。\n\n\"不用了。我只是来认认路——看看我的新邻居长什么样。\"\n\n他从兜里摸出一颗薄荷糖放嘴里：\"你这几台老机器……上个月我全新淘汰了一批比这好的。\"\n\n他走了。空气里留下一股贵价古龙水的味道。Kofi小声说：\"老板，我怎么觉得他在宣战？\"" end },
+            },
+        },
     },
 }
 
@@ -160,19 +357,19 @@ function Retention.GenerateTomorrowPreview(day)
     -- 根据当前day生成有悬念的角色驱动预告
     local NARRATIVE_HOOKS = {
         [1] = {
-            scene = "夜幕降临，街道上的音乐渐渐安静下来……",
-            hook = "隔壁杂货店老板娘悄悄告诉你：\"明天一早，会有个年轻人来找你——他说他想加入你的战队。\"",
-            icon = "🌙", urgency = "high",
+            scene = "第一天总算熬过来了。你锁好门，看了看电表——转得飞快。",
+            hook = "手机上有条短信：\"房租明天到期，$150+水电$80。\" 明天一早就得解决这个。",
+            icon = "⚡", urgency = "high",
         },
         [2] = {
-            scene = "Kofi 兴奋地擦着键盘，嘴里哼着歌……",
-            hook = "他突然转头：\"老板，我听说街尾有场比赛在找人……明天我们去试试？\"",
-            icon = "⚔️", urgency = "high",
+            scene = "打烊后你在整理电脑，角落那台旧机器的屏幕还亮着……",
+            hook = "战绩页面：14杀3死，MVP。用那种帧率？这台机器下午有人偷偷用过。明天他还会来吗？",
+            icon = "👀", urgency = "high",
         },
         [3] = {
-            scene = "关门后你路过 Gold Net Cafe……透过窗户，十几台崭新的电脑闪着蓝光。",
-            hook = "Victor 站在门口，朝你的方向看了一眼，嘴角微微上扬。明天，他会出什么招？",
-            icon = "😈", urgency = "high",
+            scene = "街坊们在门口聊天时看了你一眼——那种打量新人的目光。",
+            hook = "五金店 Kwaku 明天要来「认认新邻居」。这条街有这条街的规矩。",
+            icon = "🏘️", urgency = "high",
         },
         [4] = {
             scene = "回家路上，手机响了——一条陌生号码的短信。",
@@ -229,6 +426,88 @@ function Retention.GenerateTomorrowPreview(day)
             scene = "深夜，你看到队员的手机屏幕上——是 Gold Net 的高薪招聘帖。",
             hook = "Victor 要挖人了。你的队员们……会动摇吗？",
             icon = "⚠️", urgency = "high",
+        },
+        -- ═══ Week 3: 首战与证明 (D15-D21) ═══
+        [15] = {
+            scene = "清晨，一封带着 AEL 徽标的邮件静静躺在收件箱里。",
+            hook = "\"Dragon Force 已获得 Tier-2 预选赛资格。首战日期：三天后。\" 留给你们的时间不多了。",
+            icon = "📧", urgency = "high",
+        },
+        [16] = {
+            scene = "训练室里的气氛不一样了——没人说话，只有键盘的敲击声。",
+            hook = "Kofi 的操作越来越稳，但你注意到他的手在微微发抖。第一次正式比赛的压力……你该说点什么？",
+            icon = "🎮", urgency = "mid",
+        },
+        [17] = {
+            scene = "打完最后一场训练赛，你看着对手数据——明天的对手是 Victor 的二队。",
+            hook = "不是 Gold Net 主力，但 Victor 派他们来的意思很明确：\"我随便一支队都能碾你。\"",
+            icon = "⚔️", urgency = "high",
+        },
+        [18] = {
+            scene = "比赛结束。不管结果如何，Dragon Force 的名字第一次出现在了正式战报上。",
+            hook = "社交媒体上有人开始讨论你们了。Victor 的朋友圈转发了战报，配文只有一个字：\"哦。\"",
+            icon = "📱", urgency = "mid",
+        },
+        [19] = {
+            scene = "赛后采访的视频在本地论坛火了——Kofi 那句\"我们还会回来\"被做成了表情包。",
+            hook = "一个赞助商的名片出现在柜台上。明天要不要回电话？",
+            icon = "💼", urgency = "mid",
+        },
+        [20] = {
+            scene = "半夜被电话吵醒——是 Kofi。\"老板，你看新闻了吗？\"",
+            hook = "AEL 宣布：下个月的区域决赛落地本市。主场作战……Dragon Force 必须拿到参赛名额。",
+            icon = "🏟️", urgency = "high",
+        },
+        [21] = {
+            scene = "三周了。从破铁皮屋到本地论坛热帖。Victor 还在笑，但笑容里多了几分认真。",
+            hook = "这一周你要决定：是继续稳扎稳打，还是赌一把冲击区域决赛？",
+            icon = "📋", urgency = "high",
+        },
+        -- ═══ Week 4: AEL 冲刺与命运选择 (D22-D30) ═══
+        [22] = {
+            scene = "早上开门时发现门口放着一个快递箱——没有署名。",
+            hook = "里面是一套全新的电竞外设，附了张条：\"好好比赛。—— 一个老粉丝\"。有人在暗中支持你。",
+            icon = "📦", urgency = "mid",
+        },
+        [23] = {
+            scene = "Victor 的 Gold Net 突然宣布：\"赞助 AEL 区域决赛，冠名权归我。\"",
+            hook = "他要把你的主场变成他的秀场。如果赢了，就是在他的地盘上打他的脸。",
+            icon = "😈", urgency = "high",
+        },
+        [24] = {
+            scene = "队员们的状态到了巅峰——但一条消息让气氛凝固了。",
+            hook = "Victor 开出天价要签走你的核心选手。\"三倍工资，配车配房。\" 他说YES了吗？",
+            icon = "💰", urgency = "high",
+        },
+        [25] = {
+            scene = "决赛倒计时 5 天。网吧里贴满了队员们自己画的 Dragon Force 海报。",
+            hook = "Kofi 加练到凌晨三点。你进去时他抬头：\"老板，我不想让你失望。\"",
+            icon = "🐉", urgency = "mid",
+        },
+        [26] = {
+            scene = "本地媒体来采访了。记者问：\"你觉得你们能赢 Victor 的队吗？\"",
+            hook = "Kofi 替你回答了：\"他有钱，我们有故事。\" 明天的头条会怎么写？",
+            icon = "🎤", urgency = "mid",
+        },
+        [27] = {
+            scene = "决赛倒计时 3 天。Victor 在社交媒体上发了一张全队合照——每人手上戴着定制金表。",
+            hook = "评论区有人嘲讽你：\"Dragon Force？不如叫 Dragon Farce。\" 你的队员们沉默了。",
+            icon = "🔥", urgency = "high",
+        },
+        [28] = {
+            scene = "最后一次赛前训练。你站在队员们面前，不知道该说什么鼓励的话。",
+            hook = "Kofi 站起来：\"老板不用说了。我们都知道为什么在这里。\" 房间里响起掌声。",
+            icon = "👊", urgency = "mid",
+        },
+        [29] = {
+            scene = "明天就是决赛。夜里你一个人坐在网吧里，看着墙上的合照——从两个人到一支队伍。",
+            hook = "手机响了，Victor 发来一条消息：\"明天见。祝你好运——你会需要的。\" 明天，定胜负。",
+            icon = "⚡", urgency = "high",
+        },
+        [30] = {
+            scene = "决赛日。天还没亮，门口已经有人在排队——他们举着 Dragon Force 的旗子。",
+            hook = "三十天前你带着5000美元来到这里。今天，整个城市都在看你。不管结果如何——这就是你的故事。",
+            icon = "🏆", urgency = "high",
         },
     }
     local narrativeHook = NARRATIVE_HOOKS[day]

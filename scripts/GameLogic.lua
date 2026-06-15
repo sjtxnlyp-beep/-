@@ -1083,7 +1083,29 @@ function CalcCustomerTrafficRaw()
     if ReputationSystem.IsInfluencerActive() then
         influencerMod = 2.0
     end
-    local total = (base + attract + trafficBonus_) * dayMod * randMod * specialEventMod * rivalStealMod * weatherMod * travTrafficMod * repTrafficMod * influencerMod
+    -- ── TabSubQuests 支线客流效果 ──
+    -- 定价策略客流乘数（平民价+20%客流，高端价-15%客流）
+    local priceFlowMod = playerData_.flowMultiplier or 1.0
+    -- 小贩拜访带来的次日客流加成（值为0~1小数如0.15=+15%）
+    local subqFlowMod = 1.0
+    local activeFlow = playerData_.activeFlowBonus or 0
+    if activeFlow > 0 then
+        subqFlowMod = 1.0 + activeFlow
+    end
+    -- 主题活动日客流效果（电竞之夜x2，新手体验日+30%）
+    local themeMod = 1.0
+    local tb = playerData_.themeBonus
+    if tb then
+        if tb.name == "电竞之夜" then
+            themeMod = 2.0
+        elseif tb.name == "新手体验日" then
+            themeMod = 1.3
+        elseif tb.name == "女性优惠日" then
+            themeMod = 1.2
+        end
+    end
+
+    local total = (base + attract + trafficBonus_) * dayMod * randMod * specialEventMod * rivalStealMod * weatherMod * travTrafficMod * repTrafficMod * influencerMod * priceFlowMod * subqFlowMod * themeMod
     return math.max(1, math.floor(total))
 end
 
@@ -1275,8 +1297,10 @@ function CalcDailyIncome()
         subtotal = subtotal + math.floor(subtotal * honorBonus / 100)
     end
 
-    -- 新手保护期：Day1-5 收入×1.3（新店开业热度）
-    if playerData_.day <= 5 then
+    -- 新手保护期：Day1 ×1.5（开业热度），Day2-3 ×1.3，Day4+ 无保护
+    if playerData_.day <= 1 then
+        subtotal = math.floor(subtotal * 1.5)
+    elseif playerData_.day <= 3 then
         subtotal = math.floor(subtotal * 1.3)
     end
 
@@ -1308,6 +1332,28 @@ function CalcDailyIncome()
         local bOk, bonuses = pcall(MarketStorylines.GetBonuses)
         if bOk and bonuses and bonuses.dailyIncome and bonuses.dailyIncome > 0 then
             subtotal = subtotal + math.floor(bonuses.dailyIncome)
+        end
+    end
+
+    -- ── TabSubQuests 支线效果 ──
+    -- 定价策略乘数（平民价0.75收入但高客流，高端价1.5收入但低客流）
+    local priceMult = playerData_.priceMultiplier or 1.0
+    if priceMult ~= 1.0 then
+        subtotal = math.floor(subtotal * priceMult)
+    end
+    -- 增值服务被动收入（打印/零食/VIP包间等）
+    local passiveInc = playerData_.passiveIncome or 0
+    if passiveInc > 0 then
+        subtotal = subtotal + passiveInc
+    end
+    -- 主题活动日加成（怀旧游戏日：小费+50%即收入+15%；新手体验日：潜在常客加2客流已在traffic处理）
+    local tb = playerData_.themeBonus
+    if tb then
+        if tb.name == "怀旧游戏日" then
+            subtotal = subtotal + math.floor(subtotal * 0.15)
+        elseif tb.name == "电竞之夜" then
+            -- 电竞之夜主要是客流翻倍（在traffic处），收入额外+10%气氛消费
+            subtotal = subtotal + math.floor(subtotal * 0.10)
         end
     end
 

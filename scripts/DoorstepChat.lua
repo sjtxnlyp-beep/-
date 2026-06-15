@@ -42,7 +42,7 @@ local CHAT_POOL = {
 
     -- ── 早期提示（D5-D15） ──
     { line = "Victor 那边又在搞装修，叮叮当当吵死了。你可别被他比下去啊！",
-      charIdx = 10, cond = function() return (playerData_.day or 1) >= 5 and (playerData_.day or 1) <= 15 end },
+      charIdx = 10, cond = function() return (playerData_.day or 1) >= 8 and (playerData_.day or 1) <= 15 end },
     { line = "我跟你说，网速快的网吧——客人就是多。这是铁律。",
       charIdx = 3, cond = function() return (playerData_.netSpeed or 1) < 3 and (playerData_.day or 1) >= 7 end },
     { line = "老板，你那个比赛战队……我侄子也想加入，行不行？",

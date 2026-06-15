@@ -168,6 +168,11 @@ function BuildUI()
             local actionChoice = BuildActionChoicePopup and BuildActionChoicePopup() or nil
             if actionChoice then table.insert(overlays, actionChoice) end
         end
+        -- 街区故事确认弹窗（带NPC台词场景）
+        if currentPhase_ == PHASE_MANAGE then
+            local storyConfirm = BuildStoryConfirmPopup and BuildStoryConfirmPopup() or nil
+            if storyConfirm then table.insert(overlays, storyConfirm) end
+        end
 
         -- 用 SafeAreaView 包裹，自动适配手机刘海/状态栏/胶囊按钮
         uiRoot_ = UI.SafeAreaView {
@@ -235,22 +240,22 @@ function BuildTitleUI()
                 borderColor = { 200, 165, 80, 100 },
                 boxShadow = { { x = 0, y = 6, blur = 30, color = { 0, 0, 0, 160 } } },
                 children = {
-                    UI.Label { text = "非洲网吧大亨", fontSize = 30, fontWeight = "bold",
+                    UI.Label { text = "非洲网吧跑刀记", fontSize = 28, fontWeight = "bold",
                         fontColor = { 255, 255, 255, 255 },
                         textShadow = { offsetX = 0, offsetY = 3, blur = 16, color = { 0, 0, 0, 240 } } },
-                    UI.Label { text = "CYBER CAFE TYCOON", fontSize = 12,
+                    UI.Label { text = "DRAGON FORCE RISING", fontSize = 11,
                         fontColor = { 255, 220, 160, 180 }, letterSpacing = 3,
                         textShadow = { offsetX = 0, offsetY = 1, blur = 6, color = { 0, 0, 0, 200 } } },
                     UI.Panel { height = 6 },
                     UI.Label {
-                        text = "带着5000美元只身前往非洲\n在尘土飞扬的小城开一间网吧\n发掘天赋异禀的年轻人\n组建最强战队 征战三角洲巅峰",
-                        fontSize = 14, fontColor = { 255, 248, 235, 230 }, textAlign = "center",
-                        whiteSpace = "normal", lineHeight = 1.8,
+                        text = "国内失意，远走非洲\n接盘一间破网吧\n养出一支三角洲战队",
+                        fontSize = 15, fontColor = { 255, 248, 235, 230 }, textAlign = "center",
+                        whiteSpace = "normal", lineHeight = 1.9,
                         textShadow = { offsetX = 0, offsetY = 1, blur = 8, color = { 0, 0, 0, 220 } },
                     },
                     UI.Panel { height = 16 },
                     UI.Button {
-                        text = "开始冒险",
+                        text = "开始这一搏",
                         width = 240, height = 52, fontSize = 18, fontWeight = "bold", borderRadius = 14,
                         backgroundColor = C.accent,
                         fontColor = { 255, 255, 255, 255 },
@@ -308,6 +313,8 @@ end
 function BuildTutorialCard()
     local step = playerData_ and (playerData_.tutorialStep or 0) or 0
     if step == 0 or step >= 99 then return nil end
+    -- P2B: Day1-4 隐藏新手任务浮层，避免遮挡主线行动和日终按钮
+    if (playerData_.day or 1) <= 4 then return nil end
 
     -- 步骤配置：图标、标题、说明
     local steps = {
@@ -688,6 +695,48 @@ function BuildDaySummaryPopup()
             })
         end
 
+        -- 可撑天数指示器
+        if s.surviveDays then
+            local days = s.surviveDays
+            local barColor, icon, urgencyText
+            if days <= 3 then
+                barColor = { 220, 50, 50, 255 }
+                icon = "🚨"
+                urgencyText = "危险！"
+            elseif days <= 7 then
+                barColor = { 220, 170, 30, 255 }
+                icon = "⚠️"
+                urgencyText = "紧张"
+            else
+                barColor = { 80, 180, 80, 255 }
+                icon = "✅"
+                urgencyText = "安全"
+            end
+            table.insert(pageContent, UI.Panel {
+                width = "100%", borderRadius = 8,
+                backgroundColor = { 30, 25, 20, 220 },
+                borderWidth = 1, borderColor = { barColor[1], barColor[2], barColor[3], 100 },
+                padding = 10, gap = 4,
+                flexDirection = "row", alignItems = "center",
+                children = {
+                    UI.Label { text = icon, fontSize = 18 },
+                    UI.Panel {
+                        flex = 1, marginLeft = 8, gap = 2,
+                        children = {
+                            UI.Label {
+                                text = "按当前支出可撑 " .. days .. " 天",
+                                fontSize = 12, fontWeight = "bold", fontColor = barColor,
+                            },
+                            UI.Label {
+                                text = urgencyText .. " · 日均支出 $" .. (s.totalExpense or 0),
+                                fontSize = 10, fontColor = C.textLight,
+                            },
+                        },
+                    },
+                },
+            })
+        end
+
     elseif page == 2 and hasStory then
         -- ═══ 第2屏：今日故事 ═══
         local storyChildren = {}
@@ -985,8 +1034,8 @@ function BuildComicUI()
     local lineChildren = {}
     for _, line in ipairs(panel.lines) do
         table.insert(lineChildren, UI.Label {
-            text = line, fontSize = 15, fontColor = { 255, 248, 235, 210 },
-            textAlign = "center", whiteSpace = "normal", lineHeight = 1.6,
+            text = line, fontSize = 13, fontColor = { 255, 248, 235, 210 },
+            textAlign = "center", whiteSpace = "normal", lineHeight = 1.3,
         })
     end
 
@@ -1037,23 +1086,25 @@ function BuildComicUI()
     -- 标题
     table.insert(bottomChildren, UI.Label {
         text = panel.title,
-        fontSize = 20, fontWeight = "bold",
+        fontSize = 15, fontWeight = "bold",
         fontColor = { 255, 220, 160, 255 },
     })
     -- 文字行
     table.insert(bottomChildren, UI.Panel {
-        width = "90%", maxWidth = 360,
+        width = "94%", maxWidth = 380,
         gap = 2, alignItems = "center",
         children = lineChildren,
     })
 
     if hasChoices and not comicChoiceResponse_ then
         -- 显示选择按钮（点击面板不翻页）
-        table.insert(bottomChildren, UI.Panel { height = 10 })
+        table.insert(bottomChildren, UI.Panel { height = 6 })
         for _, choice in ipairs(panel.choices) do
             table.insert(bottomChildren, UI.Button {
-                text = choice.text, fontSize = 14, fontWeight = "bold",
-                width = "85%", maxWidth = 320, height = 44,
+                text = choice.text, fontSize = 13, fontWeight = "bold",
+                whiteSpace = "normal",
+                width = "88%", maxWidth = 320, minHeight = 36,
+                paddingTop = 6, paddingBottom = 6,
                 backgroundColor = { 60, 45, 30, 220 },
                 fontColor = { 255, 248, 235, 240 },
                 borderWidth = 1, borderColor = { 255, 200, 100, 120 },
@@ -1104,25 +1155,31 @@ function BuildComicUI()
 
     return UI.Panel {
         width = "100%", height = "100%",
-        backgroundColor = { 30, 22, 16, 255 },
+        backgroundColor = { 15, 10, 8, 255 },
         onClick = panelOnClick,
         children = {
-            -- 上方：漫画图片区域（占满剩余空间，完整显示）
+            -- 上方漫画图片区域（占60%高度，画面沉浸感优先）
             UI.Panel {
-                width = "100%", flexGrow = 1, flexShrink = 1,
+                width = "100%", flexGrow = 1, flexShrink = 1, flexBasis = 0,
+                maxHeight = "60%", minHeight = "45%",
                 backgroundImage = panel.image,
-                backgroundFit = "contain",
+                backgroundFit = "cover",
+                backgroundColor = { 10, 8, 6, 255 },
             },
-            -- 下方：文字信息区域（暗色底）
-            UI.Panel {
-                width = "100%",
-                paddingTop = 14, paddingBottom = 16,
-                paddingLeft = 24, paddingRight = 24,
-                gap = 6,
-                alignItems = "center",
-                backgroundColor = { 25, 18, 12, 250 },
-                borderTopWidth = 1, borderColor = { 255, 248, 235, 40 },
-                children = bottomChildren,
+            -- 下方文字+选项区域（紧凑，不留多余空白）
+            UI.ScrollView {
+                width = "100%", flexShrink = 1, flexGrow = 0,
+                maxHeight = "55%",
+                paddingTop = 10, paddingBottom = 10,
+                paddingLeft = 16, paddingRight = 16,
+                backgroundColor = { 20, 14, 10, 250 },
+                borderTopWidth = 1, borderColor = { 255, 220, 160, 30 },
+                children = {
+                    UI.Panel {
+                        width = "100%", gap = 4, alignItems = "center",
+                        children = bottomChildren,
+                    },
+                },
             },
             -- 右上角跳过按钮
             UI.Panel {

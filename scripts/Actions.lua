@@ -993,6 +993,11 @@ function DoVisitMarket()
     playerData_.money = playerData_.money - marketVisitCost
     -- 委托追踪：逛集市
     playerData_.questMarketVisit = (playerData_.questMarketVisit or 0) + 1
+    -- 首次逛集市：标记剧情解锁点
+    if playerData_.questMarketVisit == 1 then
+        local PU = require("ProgressiveUnlock")
+        PU.MarkStoryCompleted("first_market_visit")
+    end
 
     CafeAnimEvents.Push("market_return")
     playerData_.marketRecentIds = playerData_.marketRecentIds or {}
@@ -1234,6 +1239,48 @@ function DoHostTournament(tier)
     BuildUI()
 end
 
+-- ═══ Day2 主线行动：电费/房租危机 ═══
+function DoDay2MainAction()
+    if not UseActionPoint(1) then return end
+    local evt = Retention and Retention.GetNextTutorialEvent(2, 0)
+    if not evt then
+        AddLog("⚡ Day2主线事件加载失败，请报告bug")
+        return
+    end
+    playerData_.day2CrisisDone = true
+    currentEvent_ = evt
+    currentPhase_ = PHASE_EVENT
+    BuildUI()
+end
+
+-- ═══ Day3 主线行动：Kofi 影子事件 ═══
+function DoDay3MainAction()
+    if not UseActionPoint(1) then return end
+    local evt = Retention and Retention.GetNextTutorialEvent(3, 0)
+    if not evt then
+        AddLog("👀 Day3主线事件加载失败，请报告bug")
+        return
+    end
+    playerData_.day3KofiDone = true
+    currentEvent_ = evt
+    currentPhase_ = PHASE_EVENT
+    BuildUI()
+end
+
+-- ═══ Day4 主线行动：街区信任事件 ═══
+function DoDay4MainAction()
+    if not UseActionPoint(1) then return end
+    local evt = Retention and Retention.GetNextTutorialEvent(4, 0)
+    if not evt then
+        AddLog("🏘️ Day4主线事件加载失败，请报告bug")
+        return
+    end
+    playerData_.day4CommunityDone = true
+    currentEvent_ = evt
+    currentPhase_ = PHASE_EVENT
+    BuildUI()
+end
+
 function DoPostFlyers()
     local flyerCost = GetCityCost and GetCityCost(30) or 30
     if playerData_.money < flyerCost then return end
@@ -1242,10 +1289,15 @@ function DoPostFlyers()
     local rep = math.random(8, 20)
     playerData_.reputation = playerData_.reputation + rep
     CafeAnimEvents.Push("post_flyers")
-    if math.random() < 0.3 and #CANDIDATE_POOL > 0 and #teamMembers_ < 5 then
+    -- P1-1: D1-D3 不触发随机招募，保护新手节奏
+    if (playerData_.day or 1) >= 4 and math.random() < 0.3 and #CANDIDATE_POOL > 0 and #teamMembers_ < 5 then
         AddLog("📢 传单引来高手！声望+" .. rep)
         TriggerRecruitEvent()
         return
+    end
+    -- P1-1: D1首次行动给清晰反馈（优先级高于叙事段落）
+    if (playerData_.day or 1) <= 2 and rep > 0 then
+        AddLog("📋 贴传单完成！花费$" .. flyerCost .. " | 声望+" .. rep .. " | AP-1")
     end
 
     -- 多种丰富叙事
@@ -1335,6 +1387,37 @@ function DoBorrowMoney()
 end
 
 -- ============================================================================
+-- ============================================================================
+-- v6 新增：Big Joe 高利贷（15%日息，上限$500，比Mama B更狠但额度更高）
+-- ============================================================================
+
+--- Big Joe 高利贷借款
+function DoBorrowBigJoe()
+    if not playerData_.bigJoeUnlocked then
+        AddLog("🦈 你翻遍抽屉也找不到那张名片了。（未解锁）")
+        BuildUI(); return
+    end
+    local bigJoeDebt = playerData_.bigJoeDebt or 0
+    if bigJoeDebt >= 500 then
+        AddLog("🦈 Big Joe：\"够了兄弟，你已经欠我$" .. bigJoeDebt .. "。先把旧账清了。\"")
+        BuildUI(); return
+    end
+    if playerData_.bigJoeDebtDay == playerData_.day then
+        AddLog("🦈 Big Joe：\"一天借一次，规矩。明天再来。\"")
+        BuildUI(); return
+    end
+    local amount = 500
+    playerData_.money = playerData_.money + amount
+    pcall(MFX_MoneyPop, amount)
+    playerData_.bigJoeDebt = (playerData_.bigJoeDebt or 0) + amount
+    playerData_.bigJoeDebtDay = playerData_.day
+    CafeAnimEvents.Push("borrow_money")
+    AddLog("🦈 Big Joe 从花衬衫口袋掏出一叠钞票拍在桌上：\"$" .. amount .. "，日息15%。别让我来找你。\"")
+    AddLog("   ⚠️ Big Joe 欠款: $" .. playerData_.bigJoeDebt .. "（每日结算扣15%利息+自动还款）")
+    PlaySFX("click")
+    BuildUI()
+end
+
 -- v5 新增行动：二手市场 & 分店
 -- ============================================================================
 
@@ -2021,6 +2104,20 @@ function DoUpgrade(key)
             dailyDealApplied = true
         end
     end
+    -- TabSubQuests 市场调研折扣（次日生效的升级折扣，值为0~1小数如0.15=15%off）
+    local subqDiscountApplied = false
+    local subqDisc = playerData_.activeShopDiscount
+    if subqDisc and subqDisc > 0 then
+        local discMult = 1.0 - subqDisc  -- 0.15 → 0.85
+        if type(cost) == "table" then
+            if cost.money then
+                cost.money = math.floor(cost.money * discMult)
+            end
+        elseif type(cost) == "number" then
+            cost = math.floor(cost * discMult)
+        end
+        subqDiscountApplied = true
+    end
     if not CanAffordCost(cost) then return end
     -- 记录升级前的联动（用于完成时检测新联动激活）
     upgradeSynergiesBefore_ = {}
@@ -2035,6 +2132,9 @@ function DoUpgrade(key)
     end
     if staffDiscPct > 0 then
         AddLog("👷 " .. (staffDiscWho or "员工") .. "帮忙省了" .. staffDiscPct .. "%费用！")
+    end
+    if subqDiscountApplied then
+        AddLog("📋 市场调研折扣生效！节省" .. math.floor((subqDisc or 0) * 100) .. "%费用")
     end
     if IsCoupActive() then
         AddLog("🪖 政变期间升级，支付了" .. payDesc)

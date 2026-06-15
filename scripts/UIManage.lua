@@ -20,6 +20,70 @@ require("UIPanel_Daily")
 goldExpanded_ = goldExpanded_ or false  -- 黄金交易面板展开状态
 mapViewOpen_ = mapViewOpen_ or false    -- 帝国版图面板状态
 showEndDayAdPopup_ = showEndDayAdPopup_ or false  -- EndDay翻倍收入广告弹窗
+
+-- ═══════════════════════════════════════════════════════════════
+-- P0-2: 今日主目标 —— 每天只显示一条最该做的事
+-- 用途：给玩家清晰方向感，比广告/市场/排行榜更重要
+-- ═══════════════════════════════════════════════════════════════
+local MAIN_OBJECTIVES = {
+    -- Week 1: 生存 + Kofi
+    [1]  = { text = "把破网吧撑过第一天", hint = "贴传单 · 招揽第一批客人", icon = "🏚️" },
+    [2]  = { text = "先让 Dragon Net 活过第二天", hint = "电费房租来袭 · 做出生存抉择", icon = "⚡" },
+    [3]  = { text = "找到那个打得离谱的少年", hint = "角落那台破电脑上有异常战绩", icon = "👀" },
+    [4]  = { text = "决定你和这个街区的关系", hint = "新来的要融入还是只做生意？", icon = "🏘️" },
+    [5]  = { text = "让网吧口碑过 20", hint = "服务好客人 · 维护设备", icon = "⭐" },
+    [6]  = { text = "招第二位队员", hint = "留意新 NPC 故事线触发", icon = "👥" },
+    [7]  = { text = "打完第一周周末赛", hint = "周末赛检验一周成果", icon = "🏆" },
+    -- Week 2: Victor 出场 + 对抗
+    [8]  = { text = "面对 Victor 的第一次挑衅", hint = "稳住阵脚，不要慌", icon = "😈" },
+    [9]  = { text = "守住客流，别被价格战击垮", hint = "提升服务 · 维系老客户", icon = "🛡️" },
+    [10] = { text = "反击差评，守住口碑", hint = "升级网吧 · 积攒好评", icon = "🗣️" },
+    [11] = { text = "回复 AEL 邀请邮件", hint = "正式比赛的大门在敲", icon = "📧" },
+    [12] = { text = "扛住 Victor 的深夜造访", hint = "你的回应决定队伍士气", icon = "🌙" },
+    [13] = { text = "化压力为训练动力", hint = "加强训练 · 提升队伍实力", icon = "🔥" },
+    [14] = { text = "留住核心队员", hint = "关注队员忠诚度 · 别被挖角", icon = "⚠️" },
+    -- Week 3: 首场正式赛
+    [15] = { text = "准备 AEL 预选赛", hint = "确保队伍状态达标", icon = "📋" },
+    [16] = { text = "升级设备，备战正式比赛", hint = "电脑性能影响训练效果", icon = "💻" },
+    [17] = { text = "赢下 AEL 预选赛第一轮", hint = "比赛中注意阵容搭配", icon = "🏆" },
+    [18] = { text = "扩张网吧规模", hint = "更多座位 = 更多收入", icon = "📐" },
+    [19] = { text = "建立稳定现金流", hint = "日收入覆盖日支出", icon = "💰" },
+    [20] = { text = "预选赛晋级", hint = "打进下一轮", icon = "🚀" },
+    [21] = { text = "阶段复盘：三周成果", hint = "检查口碑 · 战绩 · 财务", icon = "📊" },
+    -- Week 4: AEL 正赛 + 终章
+    [22] = { text = "AEL 正赛首轮", hint = "Dragon Force 正式亮相", icon = "🐉" },
+    [23] = { text = "应对赛后舆论", hint = "无论胜负，口碑都在变化", icon = "📰" },
+    [24] = { text = "队伍磨合：解决内部矛盾", hint = "留意队员情绪", icon = "🤝" },
+    [25] = { text = "击败 Victor 的 Gold Net 战队", hint = "这一战决定街区霸主", icon = "⚔️" },
+    [26] = { text = "进入 AEL 四强", hint = "半决赛的门票", icon = "🎖️" },
+    [27] = { text = "决赛前最后冲刺", hint = "训练 · 设备 · 士气全部拉满", icon = "💪" },
+    [28] = { text = "AEL 总决赛", hint = "所有准备，为了这一刻", icon = "👑" },
+    [29] = { text = "赛后收尾：决定未来方向", hint = "继续扩张？还是回家？", icon = "🔮" },
+    [30] = { text = "写下你的结局", hint = "回顾 30 天，做出最后选择", icon = "📖" },
+}
+
+---获取今日主目标，day > 30 时根据状态动态生成
+---@param day integer
+---@return {text:string, hint:string, icon:string}|nil
+function GetTodayMainObjective(day)
+    if MAIN_OBJECTIVES[day] then
+        return MAIN_OBJECTIVES[day]
+    end
+    -- Day 30+ 动态目标
+    if day > 30 then
+        local rep = playerData_.reputation or 0
+        local wins = playerData_.totalTourney or 0
+        if rep < 200 then
+            return { text = "提升口碑到 200", hint = "当前: " .. rep .. "/200", icon = "⭐" }
+        elseif wins < 3 then
+            return { text = "赢得第 " .. (wins + 1) .. " 场锦标赛", hint = "已赢: " .. wins .. "/3", icon = "🏆" }
+        else
+            return { text = "书写传奇的下一章", hint = "自由经营 · 探索隐藏内容", icon = "🐉" }
+        end
+    end
+    return nil
+end
+
 function BuildManageTabBar()
     local allTabs = {
         { key = "action",  label = "经营" },
@@ -589,6 +653,8 @@ function ValidatePlayerData()
     p.upgradeListFilter = p.upgradeListFilter or "all"
     p.honorOfflineBonus = p.honorOfflineBonus or 0
     p.honorIncomeBonus = p.honorIncomeBonus or 0
+    -- ── P0-2 今日主目标追踪（旧存档兼容） ──
+    p.mainObjDoneDay = p.mainObjDoneDay or 0
     -- v11 自动化/转生（旧存档兼容）
     p.automationLevel = p.automationLevel or 0
     p.prestigeHonor = p.prestigeHonor or 0
@@ -649,6 +715,26 @@ function ValidatePlayerData()
     if p.strategyChosen == nil then p.strategyChosen = false end
     if p.overtimeUsedToday == nil then p.overtimeUsedToday = false end
     p.endOfDayDurPenalty = p.endOfDayDurPenalty or 0
+
+    -- ═══ P0-6: 隐藏后果账本（伦理维度，玩家不可见但影响结局） ═══
+    p.ethicsLedger = p.ethicsLedger or {
+        moneyVsPeople    = 0,  -- +正=重人 -负=重钱（范围 -10 ~ +10）
+        legalVsGray      = 0,  -- +正=守法 -负=灰色（范围 -10 ~ +10）
+        integrationVsExtraction = 0, -- +正=融入社区 -负=纯粹榨取
+        resultVsProcess  = 0,  -- +正=重过程/队员成长 -负=唯结果论
+    }
+    p.ethicsKeyChoices = p.ethicsKeyChoices or {} -- 关键选择记录：{day, choiceId, delta}
+
+    -- ═══ P0-7: 结局分层数据结构 ═══
+    p.endingFlags = p.endingFlags or {
+        tournamentBest     = 0,   -- 最佳锦标赛名次 (1=冠军)
+        victorDefeated     = false, -- 是否在正式赛击败 Victor
+        teamRetained       = true,  -- 核心队员是否全部留下
+        communityStanding  = 0,   -- 社区声望积分 (karma + reputation/10)
+        financialPeak      = 0,   -- 历史最高资产
+        kofiArc            = "neutral", -- Kofi 结局弧线: loyal/departed/rival/partner
+        branchCount        = 0,   -- 分店数量
+    }
 
     -- 🔒 安全检测：activeUpgrade_ 卡住修复
     -- 如果 activeUpgrade_ 有值但升级计时器已归零（非跨日模式），说明 CompleteUpgrade 曾崩溃
@@ -1364,12 +1450,15 @@ function BuildManageUI()
         local endBotColor = noAP and { 20, 90, 38, 255 } or { 90, 58, 10, 255 }
         local endBgColor  = noAP and { 45, 158, 72, 255 } or { 170, 115, 28, 255 }
         local endBorderHi = noAP and { 100, 220, 130, 200 } or { 230, 185, 75, 200 }
-        local endMainText = noAP and "✅ 结束今天" or ("结束今天  (第" .. playerData_.day .. "天)")
+        -- P1-3: AP=0 + D1-D3 时更突出的结束按钮
+        local isEarlyNoAP = noAP and (playerData_.day or 1) <= 3
+        local endMainText = isEarlyNoAP and "👉 结束今天，进入明天" or (noAP and "✅ 结束今天" or ("结束今天  (第" .. playerData_.day .. "天)"))
+        local endBtnHeight = isEarlyNoAP and 44 or 34
         local fixedEndDayBtn = UI.Panel {
             width = "100%", paddingHorizontal = 10, paddingVertical = 2,
             children = {
                 UI.Panel {
-                    width = "100%", height = 34, borderRadius = 8,
+                    width = "100%", height = endBtnHeight, borderRadius = 8,
                     backgroundColor = endBgColor,
                     borderWidth = 1.5, borderColor = endBorderHi,
                     flexDirection = "row", justifyContent = "center", alignItems = "center",
@@ -1377,8 +1466,8 @@ function BuildManageUI()
                     onClick = function()
                         if transition_.active then return end
                         PlaySFX("click")
-                        -- 翻倍收入广告：点击EndDay时弹窗询问
-                        if AdManager.CanWatch("double_income", playerData_.day) then
+                        -- 翻倍收入广告：点击EndDay时弹窗询问（Day1-3新手期不弹，保持叙事连贯）
+                        if playerData_.day >= 4 and AdManager.CanWatch("double_income", playerData_.day) then
                             showEndDayAdPopup_ = true
                             BuildUI()
                             return
@@ -1564,6 +1653,46 @@ function BuildManageUI()
         -- 底部浮动操作区内容
         local floatChildren = {}
 
+        -- ═══ P0-2: 今日主目标卡片（最高视觉优先级，每天只显示一条） ═══
+        do
+            local day = playerData_.day or 1
+            local mainObj = GetTodayMainObjective(day)
+            if mainObj then
+                -- 是否已完成今日主目标
+                local objDone = (playerData_.mainObjDoneDay == day)
+                local objBg = objDone and { 30, 80, 40, 200 } or { 80, 40, 10, 220 }
+                local objBorder = objDone and { 80, 200, 100, 180 } or { 220, 160, 50, 200 }
+                local objIcon = objDone and "✅" or (mainObj.icon or "🎯")
+                local objTextColor = objDone and { 150, 240, 160, 255 } or { 255, 235, 160, 255 }
+                local objSubColor = objDone and { 120, 200, 130, 180 } or { 200, 180, 130, 200 }
+                local objSubText = objDone and "已完成 — 干得漂亮" or (mainObj.hint or "")
+
+                table.insert(floatChildren, UI.Panel {
+                    width = "100%", paddingHorizontal = 10, paddingVertical = 8,
+                    backgroundColor = objBg,
+                    borderRadius = 8,
+                    borderWidth = 1.5, borderColor = objBorder,
+                    gap = 2,
+                    children = {
+                        UI.Panel {
+                            width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
+                            children = {
+                                UI.Label { text = objIcon, fontSize = 16 },
+                                UI.Panel { flex = 1, flexShrink = 1, gap = 1, children = {
+                                    UI.Label { text = mainObj.text, fontSize = 13, fontWeight = "bold",
+                                        fontColor = objTextColor },
+                                    objSubText ~= "" and UI.Label { text = objSubText, fontSize = 10,
+                                        fontColor = objSubColor } or nil,
+                                }},
+                                UI.Label { text = "第" .. day .. "天", fontSize = 9,
+                                    fontColor = { 160, 150, 130, 150 } },
+                            },
+                        },
+                    },
+                })
+            end
+        end
+
         -- 今日事件提示条（操作区顶部，给玩家方向感）
         if todayTip then
             table.insert(floatChildren, UI.Panel {
@@ -1580,8 +1709,10 @@ function BuildManageUI()
         end
 
         -- 每日赞助条（动态瓶颈检测，奖励玩家当前最需要的资源）
+        -- P0-8: D1-D3 抑制广告条，确保新手叙事体验不被打断
         do
             local canSponsor = AdManager.CanWatch("sponsor_gift", playerData_.day)
+                and (playerData_.day or 1) >= 4
             if canSponsor then
                 -- 动态检测瓶颈，决定今日赞助奖励
                 local sponsorIcon = "💼"

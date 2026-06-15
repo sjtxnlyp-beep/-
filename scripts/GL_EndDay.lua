@@ -257,7 +257,7 @@ function EndDay()
                 if rivalNpcs_ and #rivalNpcs_ > 0 then
                     rivalNpcs_[1].stealPct = math.min(35, (rivalNpcs_[1].stealPct or 10) + 2)
                 end
-                AddLog(string.format("🔥 【策略副作用】没有冠军背书，Blaze Net 趁机拉走散客，损失 $%d", stealLoss))
+                AddLog(string.format("🔥 【策略副作用】没有冠军背书，Victor 趁机拉走散客，损失 $%d", stealLoss))
             else
                 -- 条件不满足时执行 fallback（声望+8）
                 if se.fallback then
@@ -540,6 +540,23 @@ function EndDay()
         end
     end)
     if not debtOk then log:Write(LOG_ERROR, "[EndDay] debt error: " .. tostring(debtErr)) end
+
+    -- Big Joe 高利贷结算（15% 日息，更凶残）
+    local bjOk, bjErr = pcall(function()
+        if (playerData_.bigJoeDebt or 0) > 0 then
+            local interest = math.floor(playerData_.bigJoeDebt * 0.15)
+            playerData_.bigJoeDebt = playerData_.bigJoeDebt + interest
+            local repay = math.min(playerData_.bigJoeDebt, math.max(0, math.floor(playerData_.money * 0.35)))
+            playerData_.money = playerData_.money - repay
+            playerData_.bigJoeDebt = playerData_.bigJoeDebt - repay
+            if playerData_.bigJoeDebt > 0 then
+                AddLog("  🦈 Big Joe的小弟来收账。利息$" .. interest .. "，被拿走$" .. repay .. "。还欠$" .. playerData_.bigJoeDebt .. "。他说'别让老板亲自来。'")
+            else
+                AddLog("  🦈 终于还清Big Joe的钱了。小弟递过一瓶棕榈酒：'老板说你够意思。'希望再也不借了。")
+            end
+        end
+    end)
+    if not bjOk then log:Write(LOG_ERROR, "[EndDay] bigJoe debt error: " .. tostring(bjErr)) end
 
     -- 设备折旧（修路减少灰尘损耗）
     local degradation = math.random(2, 5) + math.floor(playerData_.computers * 0.5)
@@ -840,6 +857,12 @@ function EndDay()
         end
     end
 
+    -- TabSubQuests 每日重置（支线行动限制 + 次日效果结算）
+    do
+        local TSQ = safeRequire("TabSubQuests")
+        if TSQ then pcall(TSQ.ResetDaily) end
+    end
+
     -- 结算前检查当前委托是否已完成（收入类委托只有此时才能检测到）
     -- 今日委托功能已暂停，跳过委托结算与生成
     -- GenerateDailyQuest()
@@ -970,26 +993,19 @@ function EndDay()
         AddLog("  钱包快见底了。我翻了翻抽屉，数了数剩下的美元，心里发紧。得想个办法开源了。")
     end
 
-    -- 新手引导（留存系统：前3天触发交互式教程事件，Day4+ 保留文字提示）
+    -- 新手引导（留存系统：前7天触发交互式教程事件，Day8+ 保留文字提示）
     local day = playerData_.day
     local tutorialEventPending = nil  -- 暂存教程事件，在事件触发阶段统一处理
-    if day >= 1 and day <= 3 and Retention and not tutorialShownToday_ then
+    -- Day2-4: 如果主线行动已触发对应事件，日终不再重复
+    local skipTutorial = (day == 2 and playerData_.day2CrisisDone)
+        or (day == 3 and playerData_.day3KofiDone)
+        or (day == 4 and playerData_.day4CommunityDone)
+    if day >= 1 and day <= 7 and Retention and not tutorialShownToday_ and not skipTutorial then
         local tutOk, tutResult = pcall(Retention.GetNextTutorialEvent, day, 0)
         if tutOk and tutResult then
             tutorialEventPending = tutResult
             tutorialShownToday_ = true
         end
-    elseif day == 4 then
-        AddLog("💡 提示：招募队员后可以训练他们，队员技术越高跑刀赚的越多！")
-        AddLog("💡 组合升级有联动加成！比如「电竞椅Lv3+空调Lv2」= 舒适环境（收入+15%）")
-        if #teamMembers_ >= 1 and currentChapter_ == 1 then
-            AddLog("⭐ 条件快满足了！招满队员就能解锁第二章剧情！")
-        end
-    elseif day == 5 then
-        AddLog("💡 提示：注意非洲货币贬值风险！现金会缩水，可以买黄金保值。")
-        AddLog("💡 你的选择会影响道义值，最终决定多种不同结局！")
-    elseif day == 7 then
-        AddLog("💡 提示：已经过了一周了！检查一下「每日委托」，完成可以获得额外奖金！")
     elseif day == 10 then
         AddLog("💡 提示：随着声望提高，更多有趣的事件和人物会出现！继续经营！")
     end
@@ -1006,6 +1022,20 @@ function EndDay()
         local departOk, departErr = pcall(PersonalStory.CheckDepartedMessages)
         if not departOk then log:Write(LOG_ERROR, "[EndDay] PersonalStory.CheckDepartedMessages error: " .. tostring(departErr)) end
     end
+
+    -- ═══ P0-7: 每日结算后更新结局追踪标志 ═══
+    pcall(function()
+        local ef = playerData_.endingFlags
+        if ef then
+            -- 更新历史最高资产
+            local totalAssets = (playerData_.money or 0) + (playerData_.goldOunces or 0) * 1800
+            if totalAssets > ef.financialPeak then ef.financialPeak = totalAssets end
+            -- 更新社区声望积分
+            ef.communityStanding = (playerData_.karma or 0) + math.floor((playerData_.reputation or 0) / 10)
+            -- 更新分店数量
+            ef.branchCount = #(playerData_.branches or {})
+        end
+    end)
 
     -- 自动存档
     local saveOk, saveErr = pcall(SaveGame)
@@ -1077,7 +1107,12 @@ function EndDay()
             table.insert(statusChanges, "💳 负债: $" .. playerData_.debt)
         end
         daySummaryPage_ = 1  -- 重置分屏页码
-        -- 明日预告：预选明天的特殊事件（用于日结算展示）
+        -- 明日预告：Day1-3 使用固定剧情预告，Day4+ 随机
+        local EARLY_DAY_PREVIEWS = {
+            [1] = { icon = "⚡", title = "电费房租来袭",  hint = "明天房东 Musa 的儿子会来收租——$150房租+$80水电，准备好现金！" },
+            [2] = { icon = "👀", title = "天才少年出没",  hint = "明天可能有个身手不凡的少年出现——留意角落的旧电脑" },
+            [3] = { icon = "🏘️", title = "邻居来访",     hint = "街坊们打算来认识你这个新邻居，搞好关系很重要" },
+        }
         local TOMORROW_EVENTS = {
             { icon = "🌃", title = "夜市节",       hint = "明天周边有集市，客流会增加" },
             { icon = "⚡", title = "停电预警",      hint = "明天电力不稳，提前备好燃油！" },
@@ -1085,12 +1120,17 @@ function EndDay()
             { icon = "🌧️", title = "雨天",         hint = "明天有雨，客流可能略降" },
             { icon = "🏆", title = "本地联赛",      hint = "明天有比赛日，奖励翻倍！" },
             { icon = "📱", title = "网红来访",      hint = "有网红计划明天来打卡直播" },
-            { icon = "💸", title = "发薪日",        hint = "明天工人发薪，消费力提升" },
             { icon = "🔧", title = "维护日",        hint = "明天设备损耗减半，适合经营" },
             { icon = "🌟", title = "幸运日",        hint = "明天运势不错，收益可能+10%" },
             { icon = "🥁", title = "非洲鼓节",      hint = "明天节日庆典，声望大涨！" },
         }
-        local tomorrowEvt = TOMORROW_EVENTS[math.random(1, #TOMORROW_EVENTS)]
+        local tomorrowEvt = EARLY_DAY_PREVIEWS[prevDay] or TOMORROW_EVENTS[math.random(1, #TOMORROW_EVENTS)]
+
+        -- 计算"可撑天数"：当前余额 / 日均支出
+        local surviveDays = nil
+        if totalExpense and totalExpense > 0 then
+            surviveDays = math.floor(playerData_.money / totalExpense)
+        end
 
         pendingDaySummary_ = {
             day = prevDay,
@@ -1099,6 +1139,7 @@ function EndDay()
             totalExpense = totalExpense,
             netIncome = netIncome,
             money = playerData_.money,
+            surviveDays = surviveDays, -- 按当前支出还能撑几天
             ---@diagnostic disable-next-line: assign-type-mismatch
             tip = tips[math.random(1, #tips)],
             storyLines = storyLines,
@@ -1233,18 +1274,18 @@ function EndDay()
         end
     end
 
-    -- P2-3 中期竞争压力：Day15 后激活竞争对手 NPC
-    if prevDay == 15 and not rivalNpcs_ then
+    -- P0-4: Victor 压迫线 —— Day8 激活，单一命名反派
+    if prevDay == 8 and not rivalNpcs_ then
         rivalNpcs_ = {
-            { name = "Blaze Net",   city = "市中心", power = 65, trend = "上升", emoji = "🔥", stealPct = 15, threat = "high" },
-            { name = "King Cyber",  city = "西区",   power = 58, trend = "稳定", emoji = "👑", stealPct = 10, threat = "mid"  },
-            { name = "Speed Zone",  city = "东区",   power = 52, trend = "下降", emoji = "⚡", stealPct = 7,  threat = "low"  },
+            { name = "Gold Net · Victor", city = "街对面", power = 70, trend = "上升",
+              emoji = "😈", stealPct = 12, threat = "high",
+              desc = "资金雄厚、设备顶级的连锁网吧老板，把你当成蚂蚁" },
         }
-        AddLog("⚠️ 【新威胁】城里三家网吧开始扩张！Blaze Net、King Cyber、Speed Zone 正在崛起……")
-        AddLog("💡 提示：保持客流和声望领先，否则他们会抢走你的市场！")
+        AddLog("😈 【新威胁】街对面的 Gold Net Cafe 开始注意到你了。老板 Victor 是个不好惹的角色……")
+        AddLog("💡 Victor 资金雄厚，打价格战你赢不了。靠口碑和队伍实力守住阵地！")
     end
-    -- 竞争压力每7天升级一次（Day22, 29, ...）
-    if rivalNpcs_ and prevDay > 15 and (prevDay - 15) % 7 == 0 then
+    -- Victor 压力每3天升级一次（Day11, 14, 17, ...）
+    if rivalNpcs_ and prevDay > 8 and (prevDay - 8) % 3 == 0 then
         local myPower = math.floor((playerData_.reputation or 0) / 5 + #teamMembers_ * 10)
         for _, rival in ipairs(rivalNpcs_) do
             rival.power = rival.power + math.random(3, 8)

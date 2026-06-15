@@ -158,33 +158,34 @@ end
 -- ============================================================================
 
 local DAY1_CLIFFHANGER = {
-    title = "🌙 深夜来客",
-    desc = "关店后，你正要锁门。一辆黑色SUV停在门口，走下来一个戴墨镜的男人。\n\n\"你就是新来的中国老板？\"他打量着你的网吧，冷笑了一声。\n\"这条街上的网吧，都归Gold Net管。你……交过保护费了吗？\"\n\n他扔下一张名片就走了。名片上写着：Victor · Gold Net · CEO",
-    result = "⚠️ Gold Net的势力比你想象的大得多……明天，你需要做出选择。",
-    preview = "🔥 Victor的威胁还在耳边回响……明天会发生什么？",
+    title = "🌙 街区的夜晚",
+    desc = "关店后，你正要锁门。隔壁五金店的 Kwaku 正好路过，停下来跟你搭话。\n\n\"新来的，第一天怎么样？\" 他递给你一瓶汽水。\n\"这条街晚上还算安全，但别太晚关门。先和附近人混个脸熟，以后有事好互相照应。\"\n\n他指了指街角那家小卖部：\"Auntie Efua 白天没空，但她消息最灵通。有什么风吹草动她都知道。\"",
+    result = "💡 第一天平安结束。Kwaku 的建议值得记住——在这条街，邻里关系比什么都重要。",
+    preview = "🌅 第一天结束了。明天开始，真正的经营挑战才刚刚开始……",
 }
 
 local DAY2_PAYOFF = {
-    title = "☀️ 清晨抉择",
-    desc = "一大早，Victor的手下就来了。\"老大说了，每月$200保护费，保你平安。不交……你自己想清楚。\"\n\n你握紧了拳头。旁边的Kwame紧张地看着你。",
+    title = "☀️ 清晨来电",
+    image = "image/day2_rent_crisis_20260615054239.png",
+    desc = "一大早，手机响了。是房东 Mr. Okafor：\n\n\"小伙子，第一天生意怎么样？提醒你——房租$150加水电$80，今天到期。\"\n\n你看了看账本……这第二天比想象中来得更猛。",
     type = "choice",
     choices = {
-        { text = "💪 拒绝！我不怕他",
+        { text = "💰 全额付清，安心经营",
           effect = function()
-              playerData_.reputation = playerData_.reputation + 15
-              playerData_.karma = (playerData_.karma or 0) + 2
-          end,
-          result = "你直视来人的眼睛：\"告诉Victor，Dragon Net不交保护费。\"\n来人冷哼一声走了。Kwame竖起大拇指：\"老板，你是条汉子！\"\n\n声望+15！但Victor不会善罢甘休……" },
-        { text = "🤝 先交一个月，观察情况",
-          effect = function()
-              playerData_.money = playerData_.money - 200
-          end,
-          result = "你掏出$200递过去。\"就这一次。\"\n来人笑了：\"识时务。老大会记住你的。\"\n\n$-200。但暂时安全了，你需要变得更强来改变这一切。" },
-        { text = "🧠 拖延时间，说要考虑",
-          effect = function()
+              playerData_.money = playerData_.money - 230
               playerData_.reputation = playerData_.reputation + 5
           end,
-          result = "\"给我三天时间考虑。\"来人想了想，点头走了。\n你赢得了喘息的时间。接下来三天——赶紧壮大实力！\n\n声望+5" },
+          result = "你转账$230给房东。Mr. Okafor 很满意：\"准时付款的租户我最喜欢了。有什么需要修的跟我说。\"\n\n$-230，但房东关系+1。经营从守信开始。" },
+        { text = "🤝 先付房租，水电下周补",
+          effect = function()
+              playerData_.money = playerData_.money - 150
+          end,
+          result = "\"Mr. Okafor，房租我先付了，水电这周补上行吗？\"他犹豫了一下：\"行，别超过周五。\"\n\n$-150。你为自己争取到了几天喘息时间。" },
+        { text = "🧠 跟房东商量分期方案",
+          effect = function()
+              playerData_.reputation = playerData_.reputation + 3
+          end,
+          result = "\"Okafor 先生，我刚开业没多久，能不能前三个月房租月底付？\"他想了想：\"看在你把店面收拾得干净的份上——行。但水电不能欠。\"\n\n声望+3。好的谈判为你赢得缓冲。" },
     },
 }
 

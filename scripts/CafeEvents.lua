@@ -63,12 +63,14 @@ CAFE_EVENTS = {
       desc = "五个大学生想用电脑写论文，问能不能打个折。",
       type = "choice",
       choices = {
-          { text = "💰 原价收费",
+          { text = "💰 原价收费", hint = "短期收益↑ · 回头客↓",
+            ethics = { moneyVsPeople = -1 },
             effect = function()
                 playerData_.money = playerData_.money + 35
                 return "💰 +$35，学生老实付了全价"
             end },
-          { text = "🤝 打八折",
+          { text = "🤝 打八折", hint = "收入略少 · 口碑积累",
+            ethics = { moneyVsPeople = 1 },
             effect = function()
                 playerData_.money = playerData_.money + 25
                 playerData_.reputation = playerData_.reputation + 5
@@ -81,13 +83,15 @@ CAFE_EVENTS = {
       desc = "穿校服的男孩溜进来，看起来才十二岁。",
       type = "choice",
       choices = {
-          { text = "📞 联系家长",
+          { text = "📞 联系家长", hint = "收入无 · 社区口碑大增",
+            ethics = { legalVsGray = 1, moneyVsPeople = 1 },
             effect = function()
                 playerData_.reputation = playerData_.reputation + 8
                 playerData_.karma = playerData_.karma + 1
                 return "📞 声望 +8，邻居夸你有责任心"
             end },
-          { text = "🎮 让他玩一局",
+          { text = "🎮 让他玩一局", hint = "快钱 · 可能被家长投诉",
+            ethics = { legalVsGray = -1, moneyVsPeople = -1 },
             effect = function()
                 playerData_.money = playerData_.money + 15
                 if math.random() < 0.3 then
@@ -105,12 +109,13 @@ CAFE_EVENTS = {
       desc = "穿西装的男人要发紧急邮件，出手很阔绰。",
       type = "choice",
       choices = {
-          { text = "🏷️ 按标准收费",
+          { text = "🏷️ 按标准收费", hint = "稳定收入 · 无额外人情",
             effect = function()
                 playerData_.money = playerData_.money + 30
                 return "💰 +$30，公事公办"
             end },
-          { text = "☕ 送杯咖啡招待",
+          { text = "☕ 送杯咖啡招待", hint = "小投入 · 可能获大额小费",
+            ethics = { integrationVsExtraction = 1 },
             effect = function()
                 local tip = 60 + math.random(1, 40)
                 playerData_.money = playerData_.money + tip
@@ -124,13 +129,15 @@ CAFE_EVENTS = {
       desc = "欧洲游客手机没电，找不到酒店，快哭了。",
       type = "choice",
       choices = {
-          { text = "🤝 免费帮忙",
+          { text = "🤝 免费帮忙", hint = "无收入 · 网评大涨 · 长远回报",
+            ethics = { moneyVsPeople = 1, integrationVsExtraction = 1 },
             effect = function()
                 playerData_.reputation = playerData_.reputation + 12
                 playerData_.karma = playerData_.karma + 2
                 return "声望 +12，他在网上给你写了五星好评"
             end },
-          { text = "💵 收$20服务费",
+          { text = "💵 收$20服务费", hint = "即时收入 · 人情味略薄",
+            ethics = { moneyVsPeople = -1 },
             effect = function()
                 playerData_.money = playerData_.money + 20
                 playerData_.reputation = playerData_.reputation + 3
@@ -1417,13 +1424,18 @@ function GenerateDailyCafeEvents()
     end
 
     -- 事件数量：随机范围，随天数增长
+    -- P1-2: D1 只产出1-2件事件（1必处理+1可选观察），D2-D3 产出2-3件
     local minCount, maxCount
     if day >= 20 then
         minCount, maxCount = 3, 6
     elseif day >= 10 then
         minCount, maxCount = 2, 5
-    else
+    elseif day >= 4 then
         minCount, maxCount = 1, 4
+    elseif day >= 2 then
+        minCount, maxCount = 2, 3
+    else
+        minCount, maxCount = 1, 2
     end
     local count = math.random(minCount, maxCount)
 
@@ -1508,6 +1520,23 @@ function ResolveCafeEvent(eventIdx, choiceIdx)
             local ok, res = pcall(choice.effect)
             ---@diagnostic disable-next-line: assign-type-mismatch
             result = ok and (res or "已处理") or ("⚠️ 处理出错")
+        end
+        -- P1-2: 接入 ethicsLedger —— 记录选择对伦理维度的影响
+        if choice and choice.ethics and playerData_.ethicsLedger then
+            for axis, delta in pairs(choice.ethics) do
+                if playerData_.ethicsLedger[axis] ~= nil then
+                    playerData_.ethicsLedger[axis] = playerData_.ethicsLedger[axis] + delta
+                end
+            end
+        end
+        -- P1-2: 记录关键选择文本到 ethicsKeyChoices
+        if choice then
+            playerData_.ethicsKeyChoices = playerData_.ethicsKeyChoices or {}
+            table.insert(playerData_.ethicsKeyChoices, {
+                day = playerData_.day or 1,
+                choiceId = (evt.id or "cafe") .. "_c" .. choiceIdx,
+                text = choice.text or "",
+            })
         end
     else
         return

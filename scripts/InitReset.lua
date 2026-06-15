@@ -93,7 +93,7 @@ function ResetGame()
     StopBGM()
     StopVoice()  -- 重置时停止语音
     playerData_ = {
-        money = 5000, reputation = 0, day = 1, cafeName = "Dragon Net Cafe",
+        money = 800, reputation = 0, day = 1, cafeName = "Dragon Net Cafe",
         -- 声望消耗系统字段
         repVipUnlocked = false, repInfluencerDay = 0, repSubsidyDay = 0,
         repChallengeDay = 0, repChallengePending = false, influencerActiveDay = 0,

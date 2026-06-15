@@ -118,9 +118,18 @@ SCENE_IMAGES = {
     branch_capetown = "image/branch_capetown_20260511101938.png",
     branch_kinshasa = "image/branch_kinshasa_20260511102003.png",
     -- 漫画开场面板
-    comic_1 = "image/comic_panel_1_departure_20260512030921.png",
-    comic_2 = "image/comic_panel_2_arrival_20260512030952.png",
-    comic_3 = "image/comic_panel_3_opening_20260512032020.png",
+    -- P1-4 TapAI 图片提示词：
+    -- comic_1: "深夜城中村出租屋，昏暗灯光，桌上堆泡面和打印纸，男人背影看手机，窗外霓虹，漫画风格，16:9横幅，暗色调青蓝主光"
+    -- comic_2: "非洲小镇红土路，铁皮屋顶网吧门口，烈日下摩托车经过，中国青年拖行李箱站在门前看破旧招牌，漫画风格，16:9横幅，暖黄高对比"
+    -- comic_3: "夜晚简陋网吧内部，三台旧电脑屏幕发光，一个人用红漆在墙上写字，铁皮屋顶缝隙透路灯光线，漫画风格，16:9横幅，冷蓝暖橙对比"
+    -- comic_4(预留): "非洲少年兴奋操作键盘，屏幕上显示FPS游戏精彩击杀画面，旁边几个年轻人张嘴惊叹，网吧内昏暗但屏幕极亮，漫画风格，16:9横幅，屏幕光映脸"
+    comic_1 = "image/comic_p1_jobless_night_20260615060830.png",
+    comic_2 = "image/comic_p2_group_message_20260615060849.png",
+    comic_3 = "image/comic_p3_departure_20260615061040.png",
+    -- 落地消费分镜（第二幕）
+    comic_landing = "image/comic_p4_airport_landing_20260615070805.png",
+    comic_market  = "image/comic_p5_market_dell_20260615070758.png",
+    comic_cafe    = "image/comic_p6_tinroof_800_20260615070757.png",
     -- 章节全景splash图（每章1张16:9宽屏）
     ch1_panel1 = "image/ch1_splash_cafe_20260607151323.png",
     ch2_splash = "image/ch2_splash_rainnight_20260607151817.png",
@@ -158,43 +167,79 @@ end
 -- 2.4 漫画开场面板数据
 -- ============================================================================
 COMIC_PANELS = {
+    -- ═══ 第一幕：国内绝境 ═══
     {
         image = SCENE_IMAGES.comic_1,
         title = "深圳 · 凌晨两点",
         lines = {
-            "出租屋的灯还亮着。手机屏幕上是第31封拒信。",
-            "银行卡余额：$5,000——这是表叔\"借\"你的最后一笔。",
-            "窗外霓虹闪烁，但没有一盏是为你亮的。",
-        },
-        choices = {
-            { text = "💀 \"我已经没有退路了\"", tone = "desperate",
-              response = "你把租房合同撕成两半，打开了一张飞往非洲的机票网页。有些人南下淘金，你选择向南——再南。" },
-            { text = "🔥 \"那就去一个没人卷的地方\"", tone = "defiant",
-              response = "表叔发来的消息还亮着：\"非洲那边有机会。\" 你没回复。直接订了票。" },
+            "城中村的出租屋里，第 31 封拒信静静躺在邮箱里。",
+            "简历投了三百家，全部石沉大海。连面试机会都没有。",
+            "桌上堆着泡面盒和过期的简历打印件。银行卡余额：$5,000。",
+            "你盯着天花板的水渍，想不出任何出路。",
         },
     },
     {
         image = SCENE_IMAGES.comic_2,
-        title = "18小时后 · 瓦坎达维尔",
+        title = "群消息 · 非洲淘金",
         lines = {
-            "热浪扑面而来。行李箱的轮子在红土路上发出尖锐的声响。",
-            "没有接机的人。没有计划B。",
-            "一个中年黑人笑着走过来：\"你就是Musa说的那个中国人？\"",
+            "手机震了一下。你点开一看——老乡群里炸了。",
+            "\"兄弟们，非洲那边搞三角洲战队电竞，超级赚钱。\"",
+            "\"有个哥们在拉各斯开网吧，月流水十万刀。年轻人疯迷这游戏。\"",
+            "紧接着一条私信：\"正好有家网吧空出来招合伙人，你来不来？\"",
+            "你心跳加速。五千美金。刚好够机票加第一个月房租和设备押金。",
+        },
+        choices = {
+            { text = "😤 \"赌了，我没有退路\"", tone = "desperate",
+              response = "你盯着那条消息看了整整十分钟。\n\n然后你撕了租房合同，订了一张飞拉各斯的单程票。" },
         },
     },
     {
         image = SCENE_IMAGES.comic_3,
-        title = "Dragon Net Cafe",
+        title = "出发 · 单程票",
         lines = {
-            "铁皮屋。三台二手电脑。一条随时会断的宽带。",
-            "你用红色喷漆在墙上画了一条龙——手还在抖。",
-            "第一个客人是个赤脚少年，兜里攥着皱巴巴的纸钞。",
+            "凌晨五点的机场。你拖着唯一一只行李箱，走向登机口。",
+            "电子屏上跳动着：Lagos — Boarding。",
+            "身后没有人送行。手机已关机。旧生活到此为止。",
+            "前方是未知的非洲大陆，和一间还没见过面的破网吧。",
+            "但你知道——这是你翻盘的唯一机会。",
+        },
+    },
+    -- ═══ 第二幕：落地消费（钱是怎么没的） ═══
+    {
+        image = SCENE_IMAGES.comic_landing or SCENE_IMAGES.comic_3,
+        title = "落地 · 机场",
+        lines = {
+            "18小时后，拉各斯机场。热浪扑面而来，空气里混着柴油味和烤香蕉的甜腻。",
+            "海关官员翻了翻你的护照，露出意味深长的笑容。",
+            "\"Welcome to Africa. Inspection fee... two hundred dollars.\"",
+            "你攥紧口袋里的钱包。这不在计划里。但不给就走不出这扇门。",
+            "💸 机票 -$1,800 | 签证中介 -$600 | 海关\"检查费\" -$200",
+        },
+    },
+    {
+        image = SCENE_IMAGES.comic_market or SCENE_IMAGES.comic_3,
+        title = "二手市场 · 三台戴尔",
+        lines = {
+            "中介带你去了城郊的二手电子市场。成山的旧显示器、散热风扇堆到天花板。",
+            "\"Three Dell computers, good condition! Special price for Chinese brother!\"",
+            "你蹲下检查硬盘——划痕遍布，风扇嘎嘎响。但这是你买得起的最好货色。",
+            "三台二手戴尔，每台$400。中介费$100。连砍价的底气都没有。",
+            "💸 设备押金 -$1,200 | 中介费 -$100 | 首月房租 -$400",
+        },
+    },
+    {
+        image = SCENE_IMAGES.comic_cafe or SCENE_IMAGES.comic_3,
+        title = "铁皮屋 · 八百块",
+        lines = {
+            "中介指着一排铁皮屋里最矮的那间：\"Your cyber cafe. Nice location.\"",
+            "三台戴尔靠墙摆着。一个路由器。三把塑料凳。顶上的铁皮被太阳烤得能煎蛋。",
+            "你掏出钱包数了三遍。八百美金。这是你全部的身家了。",
+            "门口有个大婶在支炭火架。对面有群孩子在踢瘪了气的足球。远处传来祷告的钟声。",
+            "从现在起，每一美元都是生死攸关的。",
         },
         choices = {
-            { text = "🎮 \"有一天，这里会走出非洲最强战队\"", tone = "esports",
-              response = "你在龙的旁边写下了一行字：DRAGON FORCE。少年问那是什么意思。你说：\"以后你就知道了。\"" },
-            { text = "🌙 \"先活过今晚再说\"", tone = "survival",
-              response = "第一天的营业额：$12。你关了灯，坐在塑料凳上看着天花板裂缝里漏进来的月光。至少，这里不用交房租。" },
+            { text = "💪 \"八百块够了，我让它变成八万\"", tone = "determined",
+              response = "你深吸一口气，推开了Dragon Net Cafe的铁皮门。\n\n一段从$800到传奇的故事，正式开始。" },
         },
     },
 }
@@ -504,7 +549,7 @@ end
 -- 5. 游戏数据
 -- ============================================================================
 playerData_ = {
-    money = 5000, reputation = 0, day = 1,
+    money = 800, reputation = 0, day = 1,
     cafeName = "Dragon Net Cafe",
     computers = 3, chairLevel = 1, netSpeed = 1, acLevel = 0,
     -- v4 新增
@@ -753,7 +798,7 @@ pendingDoorstepChat_ = nil     -- 门口闲聊弹窗 {character={name,emoji,desc
 pendingAchievements_ = nil     -- P2-A 成就解锁队列 [{id,title,icon,desc,reward}, ...]
 dailySpecialEvent_ = nil        -- P1-6 今日特别行动 {icon, title, desc, modifier}
 matchTacticChoice_ = nil        -- P1-5 本场比赛战术选择 "rush"|"stable"|"counter"
-rivalNpcs_ = nil                -- P2-3 竞争对手NPC列表（Day15后激活）
+rivalNpcs_ = nil                -- P0-4 Victor竞对（Day8后激活）
 karma_ = 0                      -- P1-7 道义值（-10~10，影响故事分支）
 
 --- 庆祝粒子动画系统
@@ -944,7 +989,7 @@ CHAPTERS_OLD_ = {
         title = "第一章：非洲创业",
         atmosphere = "飞机引擎嗡嗡作响，窗外是绵延无际的非洲红土大陆。一段未知的旅程即将开始。",
         dialogues = {
-            { speaker = "旁白", text = "18小时航程后，你带着全部身家5000美元，降落在非洲大陆。" },
+            { speaker = "旁白", text = "18小时航程后，你带着仅剩的800美元，降落在非洲大陆。" },
             { speaker = "你",   text = "在国内卷不动，那就去非洲创业！开网吧，搞电竞，带非洲兄弟跑刀三角洲！" },
             { speaker = "旁白", text = "瓦坎达维尔小城。三台二手电脑、一个路由器、几把塑料凳——Dragon Net Cafe，正式开业。" },
             { speaker = "旁白", text = "每到傍晚，一群年轻人聚在窗外看别人玩三角洲。你设了两台免费体验机，网吧瞬间爆满。" },

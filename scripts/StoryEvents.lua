@@ -12,6 +12,34 @@ end
 
 --- 剧情事件列表：按条件在经营中自动触发，每个只触发一次
 STORY_EVENTS = {
+    -- ===== 第零幕：落地求生 =====
+    { id = "big_joe_intro",
+      cond = function() return playerData_.day >= 1 and playerData_.money <= 900 end,
+      type = "choice",
+      title = "Big Joe的名片",
+      icon = "🦈",
+      desc = "第一天结束，你坐在空荡荡的网吧里数钱。八百块。铁皮屋顶被夜风吹得嘎嘎响。\n\n一个穿花衬衫、戴金链子的壮汉推门进来，叼着一根没点着的雪茄。",
+      choices = {
+          { text = "🤝 收下名片：\"万一真需要呢\"",
+            result = "Big Joe 笑了笑，往柜台上拍了一张名片。\n\n\"利息？兄弟，我做慈善的。每天才15%。你要是一周还清，我还请你喝棕榈酒。\"\n\n他转身离开。名片上印着一个鲨鱼图案和一串号码。\n\n【解锁高利贷系统。紧急时可找 Big Joe 借钱，但利息是 Mama B 的1.5倍。】",
+            effect = function()
+                playerData_.bigJoeUnlocked = true
+                local PU = require("ProgressiveUnlock")
+                PU.MarkStoryCompleted("big_joe_intro")
+                AddLog("🦈 Big Joe的名片被夹在了收银台抽屉里。希望永远用不到。")
+            end },
+          { text = "✋ 婉拒：\"我自己能行\"",
+            result = "你摇摇头：\"谢了，不用。\"\n\nBig Joe 耸耸肩：\"随时来找我，中国兄弟。这条街上，没人比我更讲信用。\"\n\n他走后你锁好了门。八百块。得靠自己撑过去。",
+            effect = function()
+                playerData_.bigJoeUnlocked = false
+                playerData_.karma = playerData_.karma + 1  -- 拒绝诱惑
+                local PU = require("ProgressiveUnlock")
+                PU.MarkStoryCompleted("big_joe_intro")
+                AddLog("你拒绝了 Big Joe。$800，自己扛。")
+            end },
+      },
+    },
+
     -- ===== 第一幕：扎根（前 5 天） =====
     { id = "mama_chicken",
       cond = function() return playerData_.day >= 2 end,
@@ -359,7 +387,7 @@ STORY_EVENTS = {
 
     -- ===== 里程碑事件 =====
     { id = "rival_appears",
-      cond = function() return playerData_.reputation >= 50 end,
+      cond = function() return playerData_.day >= 8 and playerData_.reputation >= 50 end,
       type = "dialogue",
       title = "对手出现",
       dialogues = {

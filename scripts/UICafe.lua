@@ -207,6 +207,10 @@ function BuildCafeEventCard(eventIdx, ce)
             if choice.desc then
                 choiceText = choiceText .. "\n" .. choice.desc
             end
+            -- P1-2: 追加后果提示（hint）到选项文本下方
+            if choice.hint then
+                choiceText = choiceText .. "\n" .. "⤷ " .. choice.hint
+            end
 
             table.insert(cardChildren, UI.Button {
                 text = choiceText,

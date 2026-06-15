@@ -412,8 +412,10 @@ function BuildEventUI()
         return evt.desc or ""
     end)()
     local descCharLen = utf8.len(descText) or 0
-    if descCharLen > 300 then
-        local bytePos = utf8.offset(descText, 298) or #descText
+    -- 有图片的事件，描述截断更短以确保一屏可见选项
+    local maxLen = evt.image and 150 or 300
+    if descCharLen > maxLen then
+        local bytePos = utf8.offset(descText, maxLen - 2) or #descText
         descText = string.sub(descText, 1, bytePos - 1) .. "……"
     end
 
@@ -425,33 +427,68 @@ function BuildEventUI()
         eventBg = SCENE_IMAGES.night_market
     end
 
+    -- 构建事件内容子元素
+    local contentChildren = {}
+
+    -- 如果事件有内嵌图片，优先显示（紧凑高度，增强沉浸感）
+    if evt.image then
+        table.insert(contentChildren, UI.Panel {
+            width = "100%", height = 120,
+            borderRadius = 8,
+            backgroundImage = evt.image,
+            backgroundFit = "cover",
+            marginBottom = 4,
+        })
+    end
+
+    -- 标题行（icon + title 横排紧凑）
+    table.insert(contentChildren, UI.Panel {
+        flexDirection = "row", alignItems = "center", gap = 6,
+        children = {
+            UI.Label { text = evt.icon or "", fontSize = 24 },
+            UI.Label { text = evt.title or "事件", fontSize = 16, fontColor = C.gold, fontWeight = "bold" },
+        },
+    })
+
+    -- 描述文本
+    table.insert(contentChildren, UI.Label {
+        text = descText, fontSize = 13, fontColor = C.text,
+        textAlign = "center", whiteSpace = "normal", lineHeight = 1.35, width = "100%",
+    })
+
+    -- 选项按钮
+    for _, btn in ipairs(choiceBtns) do
+        table.insert(contentChildren, btn)
+    end
+
+    -- 招募/候选人事件内容较多，使用ScrollView；普通choice事件用Panel不滚动
+    local needScroll = (evt.candidate ~= nil)
+    local cardInner = needScroll and UI.ScrollView {
+        width = "88%", maxWidth = 400, maxHeight = "90%",
+        padding = { 14, 14 },
+        backgroundColor = C.card, borderRadius = PX.cardRadius,
+        borderWidth = PX.border, borderColor = C.gold,
+        children = {
+            UI.Panel {
+                width = "100%", gap = 6, alignItems = "center",
+                children = contentChildren,
+            },
+        },
+    } or UI.Panel {
+        width = "88%", maxWidth = 400, maxHeight = "92%",
+        padding = { 14, 14 },
+        backgroundColor = C.card, borderRadius = PX.cardRadius,
+        borderWidth = PX.border, borderColor = C.gold,
+        gap = 6, alignItems = "center",
+        children = contentChildren,
+    }
+
     return UI.Panel {
         width = "100%", height = "100%",
         backgroundImage = eventBg,
         backgroundFit = "cover",
         justifyContent = "center", alignItems = "center",
-        children = {
-            UI.ScrollView {
-                width = "88%", maxWidth = 400, maxHeight = "90%",
-                padding = { 18, 16 },
-                backgroundColor = C.card, borderRadius = PX.cardRadius,
-                borderWidth = PX.border, borderColor = C.gold,
-                children = {
-                    UI.Panel {
-                        width = "100%", gap = 8, alignItems = "center",
-                        children = (function()
-                            local c = {
-                                UI.Label { text = evt.icon or "", fontSize = 36 },
-                                UI.Label { text = evt.title or "事件", fontSize = 16, fontColor = C.gold, fontWeight = "bold" },
-                                UI.Label { text = descText, fontSize = 13, fontColor = C.text, textAlign = "center", whiteSpace = "normal", lineHeight = 1.4, width = "100%" },
-                            }
-                            for _, btn in ipairs(choiceBtns) do table.insert(c, btn) end
-                            return c
-                        end)(),
-                    },
-                },
-            },
-        },
+        children = { cardInner },
     }
 end
 
