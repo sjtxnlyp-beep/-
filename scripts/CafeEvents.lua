@@ -1521,23 +1521,8 @@ function ResolveCafeEvent(eventIdx, choiceIdx)
             ---@diagnostic disable-next-line: assign-type-mismatch
             result = ok and (res or "已处理") or ("⚠️ 处理出错")
         end
-        -- P1-2: 接入 ethicsLedger —— 记录选择对伦理维度的影响
-        if choice and choice.ethics and playerData_.ethicsLedger then
-            for axis, delta in pairs(choice.ethics) do
-                if playerData_.ethicsLedger[axis] ~= nil then
-                    playerData_.ethicsLedger[axis] = playerData_.ethicsLedger[axis] + delta
-                end
-            end
-        end
-        -- P1-2: 记录关键选择文本到 ethicsKeyChoices
-        if choice then
-            playerData_.ethicsKeyChoices = playerData_.ethicsKeyChoices or {}
-            table.insert(playerData_.ethicsKeyChoices, {
-                day = playerData_.day or 1,
-                choiceId = (evt.id or "cafe") .. "_c" .. choiceIdx,
-                text = choice.text or "",
-            })
-        end
+        -- P2-0: 统一 Ethics 记录（通过 ApplyChoiceEthics 函数）
+        ApplyChoiceEthics(choice, playerData_.day, (evt.id or "cafe") .. "_c" .. choiceIdx)
     else
         return
     end

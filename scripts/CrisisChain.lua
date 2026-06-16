@@ -435,6 +435,11 @@ function CrisisChain.MakeChoice(choiceIndex)
     -- 累计分数
     state.active.score = (state.active.score or 0) + (choice.score or 0)
 
+    -- P2: 统一 Ethics 记录
+    if choice.ethics and ApplyChoiceEthics then
+        ApplyChoiceEthics(choice, playerData_.day, (chain.id or "crisis") .. "_d" .. state.active.dayIndex .. "_c" .. choiceIndex)
+    end
+
     -- 记录今天已选择
     state.todayChoice = {
         dayIndex = state.active.dayIndex,

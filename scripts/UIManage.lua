@@ -725,6 +725,22 @@ function ValidatePlayerData()
     }
     p.ethicsKeyChoices = p.ethicsKeyChoices or {} -- 关键选择记录：{day, choiceId, delta}
 
+    -- ═══ P3: 第一季主线 (D15-D30) 旧存档兼容 ═══
+    if not p.seasonOne then
+        p.seasonOne = {
+            events = {}, aelStage = "registered", aelPoints = 0,
+            kofiPressure = 0, kofiExposure = 0, streetSupport = 0,
+            victorPressure = 0, grayRisk = 0, auditRisk = 0,
+            facilityPower = 0, finalResult = nil, route = nil, endingId = nil,
+        }
+    end
+    if p.seasonOneComplete == nil then p.seasonOneComplete = false end
+    p.postSeason = p.postSeason or false
+    p.seasonOneBonus = p.seasonOneBonus or nil
+    -- ═══ P6: CityNetwork 旧存档兼容 ═══
+    local CityNet = package.loaded["CityNetwork"]
+    if CityNet then pcall(CityNet.MigrateOldSave) end
+
     -- ═══ P0-7: 结局分层数据结构 ═══
     p.endingFlags = p.endingFlags or {
         tournamentBest     = 0,   -- 最佳锦标赛名次 (1=冠军)
@@ -1133,6 +1149,55 @@ function BuildManageTabContent()
         if currentChapter_ >= 2 or (playerData_.unlockedCities and #playerData_.unlockedCities > 1) then
             local roadmapPanel = SafeBuild("RoadmapCapsule", BuildRoadmapCapsule)
             if roadmapPanel then table.insert(actionChildren, roadmapPanel) end
+        end
+
+        -- ═══ P6: 城市网络入口（D31+继续经营模式可见） ═══
+        if playerData_.postSeason then
+            local cnPanel = SafeBuild("CityNetworkPanel", function()
+                local CityNet = package.loaded["CityNetwork"] or require("CityNetwork")
+                if not CityNet then return nil end
+                local overview = CityNet.GetCityOverview()
+                local unlockedCount = 0
+                local cityCards = {}
+                for _, c in ipairs(overview) do
+                    if c.isUnlocked then
+                        unlockedCount = unlockedCount + 1
+                        table.insert(cityCards, UI.Panel {
+                            flexDirection = "row", alignItems = "center", gap = 6,
+                            paddingVertical = 4, paddingHorizontal = 8,
+                            backgroundColor = c.isCurrent and { 40, 100, 60, 255 } or { 50, 50, 60, 255 },
+                            borderRadius = 6,
+                            children = {
+                                UI.Label { text = c.emoji .. " " .. c.name, fontSize = 12, fontColor = { 255, 255, 255, 255 } },
+                                c.isCurrent and UI.Label { text = "📍", fontSize = 10 } or nil,
+                            },
+                        })
+                    elseif c.canUnlock then
+                        table.insert(cityCards, UI.Panel {
+                            flexDirection = "row", alignItems = "center", gap = 6,
+                            paddingVertical = 4, paddingHorizontal = 8,
+                            backgroundColor = { 80, 80, 40, 255 }, borderRadius = 6,
+                            children = {
+                                UI.Label { text = c.emoji .. " " .. c.name, fontSize = 12, fontColor = { 255, 220, 100, 255 } },
+                                UI.Label { text = "🔓可解锁", fontSize = 10, fontColor = { 255, 200, 60, 255 } },
+                            },
+                        })
+                    end
+                end
+                local passive = CityNet.CalcPassiveIncome()
+                return UI.Panel {
+                    width = "100%", backgroundColor = { 30, 35, 50, 255 }, borderRadius = 10,
+                    padding = 12, marginTop = 8, gap = 8,
+                    children = {
+                        UI.Panel { flexDirection = "row", justifyContent = "space-between", alignItems = "center", width = "100%", children = {
+                            UI.Label { text = "🌍 城市网络", fontSize = 14, fontWeight = "bold", fontColor = { 100, 200, 255, 255 } },
+                            passive > 0 and UI.Label { text = "+$" .. passive .. "/天", fontSize = 11, fontColor = { 100, 255, 150, 255 } } or nil,
+                        }},
+                        UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, children = cityCards },
+                    },
+                }
+            end)
+            if cnPanel then table.insert(actionChildren, cnPanel) end
         end
 
         local branchPanel = SafeBuild("BranchSelector", BuildBranchSelector)

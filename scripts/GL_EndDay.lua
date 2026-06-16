@@ -20,6 +20,8 @@ local CrisisChain = safeRequire("CrisisChain")
 local ReputationSystem = safeRequire("ReputationSystem")
 local PersonalStory = safeRequire("PersonalStory")
 local RomanceSystem = safeRequire("RomanceSystem")
+local SeasonOneMainline = safeRequire("SeasonOneMainline")
+local CityNetwork = safeRequire("CityNetwork")
 
 --- 按权重随机抽取今日策略情境
 local function PickRandomStrategy()
@@ -831,6 +833,18 @@ function EndDay()
             (playerData_.territoryIncomeDays > 0 and ("（剩余" .. playerData_.territoryIncomeDays .. "天）") or "（已到期）"))
     end
 
+    -- ── P6: 城市网络被动收入 ──
+    if playerData_.postSeason then
+        local CityNet = package.loaded["CityNetwork"]
+        if CityNet then
+            local cnOk, cnIncome = pcall(CityNet.CalcPassiveIncome)
+            if cnOk and cnIncome and cnIncome > 0 then
+                playerData_.money = (playerData_.money or 0) + cnIncome
+                AddLog("🌍 城市网络被动收入 +$" .. cnIncome)
+            end
+        end
+    end
+
     -- ── 大额投资到期结算 ──
     if playerData_.partnerInvestment then
         local inv = playerData_.partnerInvestment
@@ -1533,6 +1547,69 @@ function EndDay()
                 log:Write(LOG_WARNING, "[EndDay] tutorial event but no UI → forcing manage")
                 currentPhase_ = PHASE_MANAGE
                 pcall(BuildUI)
+            end
+            return
+        end
+    end
+
+    -- ═══ P3: 第一季主线事件 (D15-D30) ═══
+    if not eventTriggered and SeasonOneMainline and prevDay >= 15 and prevDay <= 30 then
+        eventOk, eventErr = pcall(function()
+            SeasonOneMainline.EnsureState()
+            local mainEvt = SeasonOneMainline.GetMainEvent(prevDay)
+            if mainEvt then
+                log:Write(LOG_INFO, "[EndDay] SeasonOne mainline D" .. prevDay .. ": " .. (mainEvt.title or "?"))
+                currentEvent_ = mainEvt
+                currentPhase_ = PHASE_EVENT
+                PlaySFX("event")
+                SaveGame()
+                eventTriggered = true
+                BuildUI()
+            end
+        end)
+        if not eventOk then
+            log:Write(LOG_ERROR, "[EndDay] SeasonOneMainline error: " .. tostring(eventErr))
+        end
+        if eventTriggered then
+            if not transition_.active and uiRoot_ == nil then
+                log:Write(LOG_WARNING, "[EndDay] mainline event but no UI → forcing manage")
+                currentPhase_ = PHASE_MANAGE
+                pcall(BuildUI)
+            end
+            return
+        end
+    end
+
+    -- ═══ P3: D30 结局检测 ═══
+    if not eventTriggered and SeasonOneMainline and prevDay == 30 then
+        eventOk, eventErr = pcall(function()
+            local ending = SeasonOneMainline.BuildSeasonOneEnding()
+            if ending then
+                log:Write(LOG_INFO, "[EndDay] SeasonOne ending: " .. (ending.endingId or "unknown"))
+                SeasonOneMainline.ApplySeasonEndingRewards()
+                playerData_.seasonOneComplete = true
+                -- 存为特殊事件展示结局
+                currentEvent_ = {
+                    id = "season_one_ending",
+                    category = "ending",
+                    title = ending.title,
+                    desc = ending.desc,
+                    type = "info",
+                    ending = ending,
+                }
+                currentPhase_ = PHASE_EVENT
+                PlaySFX("victory")
+                SaveGame()
+                eventTriggered = true
+                BuildUI()
+            end
+        end)
+        if not eventOk then
+            log:Write(LOG_ERROR, "[EndDay] SeasonOne ending error: " .. tostring(eventErr))
+        end
+        if eventTriggered then
+            if not transition_.active and uiRoot_ == nil then
+                currentPhase_ = PHASE_MANAGE; pcall(BuildUI)
             end
             return
         end

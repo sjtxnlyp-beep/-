@@ -1,5 +1,6 @@
 ---@diagnostic disable: undefined-global
 local Retention = require("Retention")
+local PopupQueue = require("PopupQueue")
 
 -- ============================================================================
 -- 10. UI 调度
@@ -79,109 +80,100 @@ function BuildUI()
     end)
 
     if ok and result then
-        -- 收集所有弹窗覆盖层
+        -- ════════════════════════════════════════════════════════════════════
+        -- 弹窗队列系统（v2.0）：同一时刻只显示一个弹窗，按优先级排队
+        -- ════════════════════════════════════════════════════════════════════
+        PopupQueue.Clear()
         local overlays = {}
-        -- 踢馆条件不满足弹窗
-        local blockedPopup = BuildChallengeBlockedPopup and BuildChallengeBlockedPopup() or nil
-        if blockedPopup then table.insert(overlays, blockedPopup) end
-        -- 小游戏退出确认弹窗
-        local exitPopup = BuildMiniGameExitPopup and BuildMiniGameExitPopup() or nil
-        if exitPopup then table.insert(overlays, exitPopup) end
 
-        -- 留存系统弹窗（离线收益：核心弹窗，不受限）
-        local offlinePopup = BuildWelcomeBackPopup and BuildWelcomeBackPopup() or nil
-        if offlinePopup then table.insert(overlays, offlinePopup) end
-
-        -- ── 非核心弹窗（受每日上限控制） ──
-        local previewPopup = nil
-        if CanShowPopup() then
-            previewPopup = BuildTomorrowPreviewPopup and BuildTomorrowPreviewPopup() or nil
-            if previewPopup then
-                ConsumePopupSlot()
-                table.insert(overlays, previewPopup)
-            end
-        else
-            -- 超出上限：静默消耗 pending 数据（避免下次 BuildUI 再检测）
-            pendingTomorrowPreview_ = nil
+        -- ── 阻塞性弹窗（最高优先级，用户必须立即处理） ──
+        if BuildChallengeBlockedPopup then
+            PopupQueue.Enqueue("challenge-blocked", PopupQueue.PRIORITY.BLOCKING,
+                BuildChallengeBlockedPopup, true)
         end
-        -- P0-B 今日任务清单（明日预告关闭后展示，二者不同时出现）
-        local dayStartPopup = nil
-        if not previewPopup then
-            if CanShowPopup() then
-                dayStartPopup = BuildDayStartSummaryPopup and BuildDayStartSummaryPopup() or nil
-                if dayStartPopup then
-                    ConsumePopupSlot()
-                    table.insert(overlays, dayStartPopup)
+        if BuildMiniGameExitPopup then
+            PopupQueue.Enqueue("minigame-exit", PopupQueue.PRIORITY.BLOCKING,
+                BuildMiniGameExitPopup, true)
+        end
+
+        -- ── 核心弹窗（不受每日上限限制） ──
+        if BuildWelcomeBackPopup then
+            PopupQueue.Enqueue("offline-reward", PopupQueue.PRIORITY.CORE,
+                BuildWelcomeBackPopup, true)
+        end
+        if currentPhase_ == PHASE_MANAGE and pendingDaySummary_ then
+            PopupQueue.Enqueue("day-summary", PopupQueue.PRIORITY.CORE,
+                BuildDaySummaryPopup, true)
+        end
+        if currentPhase_ == PHASE_MANAGE and pendingWeeklyReport_ then
+            PopupQueue.Enqueue("weekly-report", PopupQueue.PRIORITY.CORE,
+                BuildWeeklyReportPopup, true)
+        end
+
+        -- ── 叙事弹窗 ──
+        if currentPhase_ == PHASE_MANAGE and BuildStoryConfirmPopup then
+            PopupQueue.Enqueue("story-confirm", PopupQueue.PRIORITY.STORY,
+                BuildStoryConfirmPopup, false)
+        end
+        if currentPhase_ == PHASE_MANAGE and BuildDoorstepChatPopup then
+            PopupQueue.Enqueue("doorstep-chat", PopupQueue.PRIORITY.STORY,
+                BuildDoorstepChatPopup, false)
+        end
+
+        -- ── 反馈弹窗 ──
+        if currentPhase_ == PHASE_MANAGE and pendingUpgradeFeedback_ then
+            PopupQueue.Enqueue("upgrade-feedback", PopupQueue.PRIORITY.FEEDBACK,
+                BuildUpgradeFeedbackPopup, false)
+        end
+        if currentPhase_ == PHASE_MANAGE and BuildActionResultPopup then
+            PopupQueue.Enqueue("action-result", PopupQueue.PRIORITY.FEEDBACK,
+                BuildActionResultPopup, false)
+        end
+        if currentPhase_ == PHASE_MANAGE and BuildActionChoicePopup then
+            PopupQueue.Enqueue("action-choice", PopupQueue.PRIORITY.FEEDBACK,
+                BuildActionChoicePopup, false)
+        end
+
+        -- ── 信息弹窗 ──
+        if currentPhase_ == PHASE_MANAGE and pendingTomorrowPreview_ then
+            PopupQueue.Enqueue("tomorrow-preview", PopupQueue.PRIORITY.INFO,
+                BuildTomorrowPreviewPopup, false)
+        end
+        if currentPhase_ == PHASE_MANAGE and pendingDayStartSummary_ then
+            PopupQueue.Enqueue("day-start", PopupQueue.PRIORITY.INFO,
+                BuildDayStartSummaryPopup, false)
+        end
+        if currentPhase_ == PHASE_MANAGE and pendingAchievements_ and #pendingAchievements_ > 0 then
+            PopupQueue.Enqueue("achievement", PopupQueue.PRIORITY.INFO,
+                BuildAchievementUnlockPopup, false)
+        end
+
+        -- ── 从队列中取出当前应显示的弹窗（只取一个） ──
+        local currentPopup = PopupQueue.BuildCurrent()
+        if currentPopup then
+            table.insert(overlays, currentPopup)
+        end
+
+        -- ── 成就溢出兜底：超出每日上限则转入 mailbox ──
+        if not CanShowPopup() and pendingAchievements_ and #pendingAchievements_ > 0 then
+            if not PopupQueue.Has("achievement") then
+                playerData_.mailbox = playerData_.mailbox or {}
+                for _, ach in ipairs(pendingAchievements_) do
+                    table.insert(playerData_.mailbox, {
+                        type = "achievement", title = ach.title or ach.id,
+                        icon = ach.icon or "🏆", desc = ach.desc or "",
+                        reward = ach.reward, read = false,
+                        time = playerData_.day or 1,
+                    })
                 end
-            else
-                pendingDayStartSummary_ = nil
-            end
-        end
-        -- P2-A 成就解锁通知（受上限控制，超出转入 mailbox）
-        if not previewPopup and not dayStartPopup then
-            if CanShowPopup() then
-                local achPopup = BuildAchievementUnlockPopup and BuildAchievementUnlockPopup() or nil
-                if achPopup then
-                    ConsumePopupSlot()
-                    table.insert(overlays, achPopup)
-                end
-            else
-                -- 成就超出上限：将剩余转入 mailbox 供玩家手动查看
-                if pendingAchievements_ and #pendingAchievements_ > 0 then
-                    playerData_.mailbox = playerData_.mailbox or {}
-                    for _, ach in ipairs(pendingAchievements_) do
-                        table.insert(playerData_.mailbox, {
-                            type = "achievement", title = ach.title or ach.id,
-                            icon = ach.icon or "🏆", desc = ach.desc or "",
-                            reward = ach.reward, read = false,
-                            time = playerData_.day or 1,
-                        })
-                    end
-                    pendingAchievements_ = nil
-                end
+                pendingAchievements_ = nil
             end
         end
 
-        -- 门口闲聊弹窗（轻量叙事，不受弹窗上限控制）
-        if not previewPopup and not dayStartPopup then
-            local chatPopup = BuildDoorstepChatPopup and BuildDoorstepChatPopup() or nil
-            if chatPopup then table.insert(overlays, chatPopup) end
-        end
-
-        -- P0-1 新手引导浮动卡片（底部）
-        if currentPhase_ == PHASE_MANAGE then
+        -- ── 非弹窗浮层（教程卡片不算弹窗，可与弹窗共存） ──
+        if currentPhase_ == PHASE_MANAGE and not currentPopup then
             local tutCard = BuildTutorialCard and BuildTutorialCard() or nil
             if tutCard then table.insert(overlays, tutCard) end
-        end
-        -- P0-2 升级效果卡
-        if currentPhase_ == PHASE_MANAGE then
-            local feedbackPopup = BuildUpgradeFeedbackPopup and BuildUpgradeFeedbackPopup() or nil
-            if feedbackPopup then table.insert(overlays, feedbackPopup) end
-        end
-        -- P0-2 征途小结弹窗（打烊日记）
-        if currentPhase_ == PHASE_MANAGE then
-            local daySummary = BuildDaySummaryPopup and BuildDaySummaryPopup() or nil
-            if daySummary then table.insert(overlays, daySummary) end
-        end
-        -- 周报弹窗（每5天，打烊日记关闭后触发）
-        if currentPhase_ == PHASE_MANAGE then
-            local weeklyReport = BuildWeeklyReportPopup and BuildWeeklyReportPopup() or nil
-            if weeklyReport then table.insert(overlays, weeklyReport) end
-        end
-        -- 操作确认弹窗（维修/广告选项等）
-        if currentPhase_ == PHASE_MANAGE then
-            local actionChoice = BuildActionChoicePopup and BuildActionChoicePopup() or nil
-            if actionChoice then table.insert(overlays, actionChoice) end
-        end
-        -- 街区故事确认弹窗（带NPC台词场景）
-        if currentPhase_ == PHASE_MANAGE then
-            local storyConfirm = BuildStoryConfirmPopup and BuildStoryConfirmPopup() or nil
-            if storyConfirm then table.insert(overlays, storyConfirm) end
-        end
-        -- 行动结果弹窗（打零工/学一招等执行后反馈）
-        if currentPhase_ == PHASE_MANAGE then
-            local actionResult = BuildActionResultPopup and BuildActionResultPopup() or nil
-            if actionResult then table.insert(overlays, actionResult) end
         end
 
         -- 用 SafeAreaView 包裹，自动适配手机刘海/状态栏/胶囊按钮
@@ -605,9 +597,10 @@ end
 
 -- ============================================================================
 -- ============================================================================
--- 打烊日记（单屏合并版：收支+故事+状态+明日预告，一次看完）
+-- 打烊日记（Tab分页版：经营 | 故事 | 明日）
 -- ============================================================================
-daySummaryPage_ = 1  -- 兼容旧代码引用（不再使用分页逻辑）
+daySummaryPage_ = 1   -- 当前 Tab 索引: 1=经营, 2=故事, 3=明日
+daySummaryTab_ = 1    -- 同上（新命名）
 
 function BuildDaySummaryPopup()
     if not pendingDaySummary_ then return nil end
@@ -618,222 +611,317 @@ function BuildDaySummaryPopup()
 
     local hasStory = s.storyLines and #s.storyLines > 0
     local hasStatus = s.statusChanges and #s.statusChanges > 0
-    local hasWeekly = s.weeklyReport ~= nil
+
+    local curTab = daySummaryTab_ or 1
 
     -- 关闭按钮回调
     local function closeSummary()
         PlaySFX("click")
-        -- 周报已禁用（用户反馈弹窗过多），直接关闭日记回到经营界面
         pendingDaySummary_ = nil
+        daySummaryTab_ = 1
         daySummaryPage_ = 1
         BuildUI()
     end
 
-    -- ═══ 内容区段列表 ═══
-    local sections = {}
+    -- Tab 切换回调
+    local function switchTab(idx)
+        return function()
+            PlaySFX("click")
+            daySummaryTab_ = idx
+            daySummaryPage_ = idx
+            BuildUI()
+        end
+    end
 
-    -- ━━ 区段1: 收支速览 ━━
-    table.insert(sections, UI.Panel {
-        width = "100%", flexDirection = "row", gap = 6,
-        children = {
-            UI.Panel {
-                flex = 1, borderRadius = 8,
-                backgroundColor = { 40, 75, 40, 200 },
-                padding = 8, gap = 2, alignItems = "center",
-                children = {
-                    UI.Label { text = "$" .. (s.income or 0), fontSize = 15,
-                        fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
-                    UI.Label { text = "收入", fontSize = 10, fontColor = C.textLight },
-                },
-            },
-            UI.Panel {
-                flex = 1, borderRadius = 8,
-                backgroundColor = isProfit and { 40, 75, 40, 200 } or { 75, 30, 30, 200 },
-                padding = 8, gap = 2, alignItems = "center",
-                children = {
-                    UI.Label { text = profitSign .. (s.netIncome or 0), fontSize = 15,
-                        fontWeight = "bold", fontColor = profitColor },
-                    UI.Label { text = "净利润", fontSize = 10, fontColor = C.textLight },
-                },
-            },
-            UI.Panel {
-                flex = 1, borderRadius = 8,
-                backgroundColor = { 50, 45, 20, 200 },
-                padding = 8, gap = 2, alignItems = "center",
-                children = {
-                    UI.Label { text = "$" .. (s.money or 0), fontSize = 15,
-                        fontWeight = "bold", fontColor = C.gold },
-                    UI.Label { text = "余额", fontSize = 10, fontColor = C.textLight },
-                },
-            },
-        },
-    })
+    -- ════ Tab 定义 ════
+    local TAB_DEFS = {
+        { id = 1, label = "经营", icon = "💰" },
+        { id = 2, label = "故事", icon = "📖" },
+        { id = 3, label = "明日", icon = "🔮" },
+    }
 
-    -- 支出明细（折叠为一行总计 + 展开细节）
-    if s.expenses and #s.expenses > 0 then
-        local expItems = {}
-        for _, exp in ipairs(s.expenses) do
-            table.insert(expItems, UI.Panel {
-                width = "100%", flexDirection = "row", justifyContent = "space-between",
+    -- ════ Tab 栏构建 ════
+    local tabButtons = {}
+    for _, tab in ipairs(TAB_DEFS) do
+        local isActive = (curTab == tab.id)
+        table.insert(tabButtons, UI.Panel {
+            flex = 1, height = 36, borderRadius = 8,
+            backgroundColor = isActive and { C.accent[1], C.accent[2], C.accent[3], 200 }
+                            or { 40, 35, 28, 180 },
+            justifyContent = "center", alignItems = "center",
+            borderWidth = isActive and 0 or 1,
+            borderColor = { 80, 70, 55, 120 },
+            onClick = (not isActive) and switchTab(tab.id) or nil,
+            children = {
+                UI.Label {
+                    text = tab.icon .. " " .. tab.label,
+                    fontSize = 12, fontWeight = isActive and "bold" or "normal",
+                    fontColor = isActive and { 255, 255, 255, 255 } or { 180, 170, 150, 200 },
+                },
+            },
+        })
+    end
+
+    local tabBar = UI.Panel {
+        width = "100%", flexDirection = "row", gap = 4, paddingBottom = 6,
+        children = tabButtons,
+    }
+
+    -- ════ Tab 1: 经营 ════
+    local function buildTabBusiness()
+        local items = {}
+        -- 收支三格
+        table.insert(items, UI.Panel {
+            width = "100%", flexDirection = "row", gap = 6,
+            children = {
+                UI.Panel {
+                    flex = 1, borderRadius = 8,
+                    backgroundColor = { 40, 75, 40, 200 },
+                    padding = 8, gap = 2, alignItems = "center",
+                    children = {
+                        UI.Label { text = "$" .. (s.income or 0), fontSize = 15,
+                            fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
+                        UI.Label { text = "收入", fontSize = 10, fontColor = C.textLight },
+                    },
+                },
+                UI.Panel {
+                    flex = 1, borderRadius = 8,
+                    backgroundColor = isProfit and { 40, 75, 40, 200 } or { 75, 30, 30, 200 },
+                    padding = 8, gap = 2, alignItems = "center",
+                    children = {
+                        UI.Label { text = profitSign .. (s.netIncome or 0), fontSize = 15,
+                            fontWeight = "bold", fontColor = profitColor },
+                        UI.Label { text = "净利润", fontSize = 10, fontColor = C.textLight },
+                    },
+                },
+                UI.Panel {
+                    flex = 1, borderRadius = 8,
+                    backgroundColor = { 50, 45, 20, 200 },
+                    padding = 8, gap = 2, alignItems = "center",
+                    children = {
+                        UI.Label { text = "$" .. (s.money or 0), fontSize = 15,
+                            fontWeight = "bold", fontColor = C.gold },
+                        UI.Label { text = "余额", fontSize = 10, fontColor = C.textLight },
+                    },
+                },
+            },
+        })
+
+        -- 支出明细
+        if s.expenses and #s.expenses > 0 then
+            local expItems = {}
+            for _, exp in ipairs(s.expenses) do
+                table.insert(expItems, UI.Panel {
+                    width = "100%", flexDirection = "row", justifyContent = "space-between",
+                    children = {
+                        UI.Label { text = exp.name, fontSize = 10, fontColor = C.textLight },
+                        UI.Label { text = "-$" .. exp.amount, fontSize = 10,
+                            fontColor = { 240, 130, 100, 200 } },
+                    },
+                })
+            end
+            table.insert(items, UI.Panel {
+                width = "100%", borderRadius = 6, backgroundColor = { 20, 18, 12, 180 },
+                padding = 8, gap = 2,
+                children = expItems,
+            })
+        end
+
+        -- 可撑天数
+        if s.surviveDays then
+            local days = s.surviveDays
+            local barColor, survIcon
+            if days <= 3 then
+                barColor = { 220, 50, 50, 255 }; survIcon = "🚨"
+            elseif days <= 7 then
+                barColor = { 220, 170, 30, 255 }; survIcon = "⚠️"
+            else
+                barColor = { 80, 180, 80, 255 }; survIcon = "✅"
+            end
+            table.insert(items, UI.Panel {
+                width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
+                padding = 6, borderRadius = 6,
+                backgroundColor = { 25, 22, 18, 180 },
                 children = {
-                    UI.Label { text = exp.name, fontSize = 10, fontColor = C.textLight },
-                    UI.Label { text = "-$" .. exp.amount, fontSize = 10,
-                        fontColor = { 240, 130, 100, 200 } },
+                    UI.Label { text = survIcon, fontSize = 14 },
+                    UI.Label {
+                        text = "可撑 " .. days .. " 天 · 日均支出 $" .. (s.totalExpense or 0),
+                        fontSize = 11, fontColor = barColor,
+                    },
                 },
             })
         end
-        table.insert(sections, UI.Panel {
-            width = "100%", borderRadius = 6, backgroundColor = { 20, 18, 12, 180 },
-            padding = 8, gap = 2,
-            children = expItems,
-        })
-    end
 
-    -- 可撑天数（紧凑版）
-    if s.surviveDays then
-        local days = s.surviveDays
-        local barColor, icon
-        if days <= 3 then
-            barColor = { 220, 50, 50, 255 }; icon = "🚨"
-        elseif days <= 7 then
-            barColor = { 220, 170, 30, 255 }; icon = "⚠️"
-        else
-            barColor = { 80, 180, 80, 255 }; icon = "✅"
-        end
-        table.insert(sections, UI.Panel {
-            width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
-            padding = 6, borderRadius = 6,
-            backgroundColor = { 25, 22, 18, 180 },
-            children = {
-                UI.Label { text = icon, fontSize = 14 },
-                UI.Label {
-                    text = "可撑 " .. days .. " 天 · 日均支出 $" .. (s.totalExpense or 0),
-                    fontSize = 11, fontColor = barColor,
+        -- 提示语
+        if s.tip then
+            table.insert(items, UI.Panel {
+                width = "100%", flexDirection = "row", gap = 6, alignItems = "center",
+                children = {
+                    UI.Label { text = "💡", fontSize = 12, flexShrink = 0 },
+                    UI.Label {
+                        text = s.tip,
+                        fontSize = 10, fontColor = { 140, 190, 230, 200 },
+                        whiteSpace = "normal", lineHeight = 1.3, flex = 1,
+                    },
                 },
-            },
-        })
+            })
+        end
+
+        return UI.Panel { width = "100%", gap = 8, children = items }
     end
 
-    -- ━━ 分隔线 ━━
-    if hasStory or hasStatus then
-        table.insert(sections, UI.Panel {
-            width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
-        })
-    end
+    -- ════ Tab 2: 故事 ════
+    local function buildTabStory()
+        local items = {}
 
-    -- ━━ 区段2: 今日记事（故事+状态合并） ━━
-    if hasStory then
-        local storyItems = {}
-        for i, line in ipairs(s.storyLines) do
-            if i <= 4 then  -- 最多显示4条
-                table.insert(storyItems, UI.Label {
-                    text = "· " .. line, fontSize = 11,
-                    fontColor = { 210, 200, 180, 220 },
+        if hasStory then
+            for _, line in ipairs(s.storyLines) do
+                table.insert(items, UI.Label {
+                    text = "· " .. line, fontSize = 12,
+                    fontColor = { 210, 200, 180, 230 },
+                    whiteSpace = "normal", lineHeight = 1.5,
+                })
+            end
+        end
+
+        if hasStatus then
+            if hasStory then
+                table.insert(items, UI.Panel {
+                    width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
+                    marginTop = 4, marginBottom = 4,
+                })
+            end
+            for _, st in ipairs(s.statusChanges) do
+                table.insert(items, UI.Label {
+                    text = st, fontSize = 11, fontColor = { 180, 180, 210, 220 },
                     whiteSpace = "normal", lineHeight = 1.4,
                 })
             end
         end
-        table.insert(sections, UI.Panel {
-            width = "100%", gap = 4,
-            children = storyItems,
-        })
-    end
 
-    if hasStatus then
-        for _, st in ipairs(s.statusChanges) do
-            table.insert(sections, UI.Label {
-                text = st, fontSize = 11, fontColor = { 180, 180, 210, 220 },
+        if not hasStory and not hasStatus then
+            table.insert(items, UI.Panel {
+                width = "100%", height = 80, justifyContent = "center", alignItems = "center",
+                children = {
+                    UI.Label { text = "今天平静无事", fontSize = 13,
+                        fontColor = { 140, 140, 130, 180 } },
+                },
             })
         end
+
+        return UI.Panel { width = "100%", gap = 6, children = items }
     end
 
-    -- ━━ 分隔线 ━━
-    if s.tomorrowPreview or s.tip then
-        table.insert(sections, UI.Panel {
-            width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
-        })
-    end
+    -- ════ Tab 3: 明日 ════
+    local function buildTabTomorrow()
+        local items = {}
 
-    -- ━━ 区段3: 明日预告 ━━
-    if s.tomorrowPreview then
-        local tp = s.tomorrowPreview
-        table.insert(sections, UI.Panel {
-            width = "100%", flexDirection = "row", gap = 8, alignItems = "center",
-            padding = 8, borderRadius = 8,
-            backgroundColor = { 45, 35, 15, 200 },
-            borderWidth = 1, borderColor = { 200, 160, 50, 100 },
-            children = {
-                UI.Label { text = tp.icon or "🔮", fontSize = 18, flexShrink = 0 },
-                UI.Panel { flex = 1, gap = 2, children = {
-                    UI.Label {
-                        text = "明日: " .. (tp.title or ""),
-                        fontSize = 12, fontWeight = "bold",
-                        fontColor = { 255, 230, 160, 255 },
-                    },
-                    UI.Label {
-                        text = tp.hint or "",
-                        fontSize = 10, fontColor = { 190, 170, 130, 200 },
-                        whiteSpace = "normal", lineHeight = 1.3,
-                    },
-                }},
-            },
-        })
-    end
-
-    -- 提示语（简短版，放在按钮前）
-    if s.tip then
-        table.insert(sections, UI.Panel {
-            width = "100%", flexDirection = "row", gap = 6, alignItems = "center",
-            children = {
-                UI.Label { text = "💡", fontSize = 12, flexShrink = 0 },
-                UI.Label {
-                    text = s.tip,
-                    fontSize = 10, fontColor = { 140, 190, 230, 200 },
-                    whiteSpace = "normal", lineHeight = 1.3, flex = 1,
+        if s.tomorrowPreview then
+            local tp = s.tomorrowPreview
+            table.insert(items, UI.Panel {
+                width = "100%", flexDirection = "row", gap = 8, alignItems = "center",
+                padding = 10, borderRadius = 8,
+                backgroundColor = { 45, 35, 15, 200 },
+                borderWidth = 1, borderColor = { 200, 160, 50, 100 },
+                children = {
+                    UI.Label { text = tp.icon or "🔮", fontSize = 22, flexShrink = 0 },
+                    UI.Panel { flex = 1, gap = 3, children = {
+                        UI.Label {
+                            text = tp.title or "明日预告",
+                            fontSize = 13, fontWeight = "bold",
+                            fontColor = { 255, 230, 160, 255 },
+                        },
+                        UI.Label {
+                            text = tp.hint or "",
+                            fontSize = 11, fontColor = { 190, 170, 130, 220 },
+                            whiteSpace = "normal", lineHeight = 1.4,
+                        },
+                    }},
                 },
-            },
-        })
+            })
+        end
+
+        -- 主线目标提示
+        local nextDay = (s.day or 0) + 1
+        local obj = MAIN_OBJECTIVES and MAIN_OBJECTIVES[nextDay]
+        if obj then
+            table.insert(items, UI.Panel {
+                width = "100%", padding = 10, borderRadius = 8,
+                backgroundColor = { 30, 40, 55, 200 },
+                borderWidth = 1, borderColor = { 80, 130, 200, 100 },
+                gap = 4,
+                children = {
+                    UI.Label { text = "🎯 明日目标", fontSize = 11, fontWeight = "bold",
+                        fontColor = { 140, 180, 240, 255 } },
+                    UI.Label { text = obj, fontSize = 11,
+                        fontColor = { 200, 210, 230, 220 },
+                        whiteSpace = "normal", lineHeight = 1.4 },
+                },
+            })
+        end
+
+        if not s.tomorrowPreview and not obj then
+            table.insert(items, UI.Panel {
+                width = "100%", height = 80, justifyContent = "center", alignItems = "center",
+                children = {
+                    UI.Label { text = "明天会更好", fontSize = 13,
+                        fontColor = { 140, 140, 130, 180 } },
+                },
+            })
+        end
+
+        return UI.Panel { width = "100%", gap = 8, children = items }
     end
 
-    -- ━━ 确认按钮 ━━
-    table.insert(sections, UI.Button {
-        text = "继续征途 →",
-        width = "100%", height = 44, fontSize = 14, fontWeight = "bold",
-        backgroundColor = C.accent,
-        borderRadius = PX.cardRadius,
-        onClick = closeSummary,
-    })
+    -- ════ 构建当前 Tab 内容 ════
+    local tabContent
+    if curTab == 1 then
+        tabContent = buildTabBusiness()
+    elseif curTab == 2 then
+        tabContent = buildTabStory()
+    else
+        tabContent = buildTabTomorrow()
+    end
 
-    -- ═══ 组装卡片 ═══
+    -- ════ 组装卡片 ════
     return UI.Panel {
         position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
         backgroundColor = { 0, 0, 0, 180 },
         justifyContent = "center", alignItems = "center",
         paddingHorizontal = 16,
         zIndex = 300,
-        onClick = closeSummary,
         children = {
-            UI.ScrollView {
+            UI.Panel {
                 width = "100%", maxWidth = 340,
                 maxHeight = "85%",
                 backgroundColor = C.card,
                 borderRadius = PX.cardRadius,
                 borderWidth = PX.border, borderColor = C.gold,
-                padding = 16, gap = 10,
+                padding = 16, gap = 8,
                 children = {
-                    UI.Panel {
-                        width = "100%", gap = 10,
-                        children = {
-                            -- 标题
-                            UI.Label {
-                                text = "打烊日记 · 第" .. s.day .. "天",
-                                fontSize = 15, fontWeight = "bold",
-                                fontColor = C.gold, textAlign = "center",
-                                width = "100%",
-                            },
-                            UI.Panel { width = "100%", height = 1, backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 50 } },
-                            table.unpack(sections),
-                        },
+                    -- 标题
+                    UI.Label {
+                        text = "打烊日记 · 第" .. s.day .. "天",
+                        fontSize = 15, fontWeight = "bold",
+                        fontColor = C.gold, textAlign = "center",
+                        width = "100%",
+                    },
+                    UI.Panel { width = "100%", height = 1, backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 50 } },
+                    -- Tab 栏
+                    tabBar,
+                    -- Tab 内容（可滚动区域）
+                    UI.ScrollView {
+                        width = "100%", flex = 1,
+                        maxHeight = 300,
+                        children = { tabContent },
+                    },
+                    -- 确认按钮
+                    UI.Button {
+                        text = "继续征途 →",
+                        width = "100%", height = 44, fontSize = 14, fontWeight = "bold",
+                        backgroundColor = C.accent,
+                        borderRadius = PX.cardRadius,
+                        onClick = closeSummary,
                     },
                 },
             },

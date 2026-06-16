@@ -293,25 +293,16 @@ local TUTORIAL_EVENTS = {
             type = "choice",
             choices = {
                 { text = "😤 \"指教不敢当。来者是客，有事说事。\"",
+                  ethics = { legalVsGray = 1, moneyVsPeople = 1 },
                   effect = function()
                       playerData_.reputation = playerData_.reputation + 3
                       playerData_.karma = (playerData_.karma or 0) + 1
-                      -- P0-6: 伦理追踪 —— 硬气回应 = 正直
-                      if playerData_.ethicsLedger then
-                          playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray + 1
-                          playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople + 1
-                      end
-                      table.insert(playerData_.ethicsKeyChoices or {}, { day = 8, choiceId = "victor_firm", delta = "+legalVsGray +moneyVsPeople" })
                   end,
                   result = function() return "Victor 笑了一下，那笑容里有三分欣赏七分轻蔑。\n\n\"有骨气。不过光有骨气活不下去的。\"\n\n他转身走到门口又停了一下：\"我的 Gold Net 下个月要搞周年庆大促。你……自求多福吧。\"\n\n门在他身后关上。Kofi从后面冒出来：\"老板……那人什么来头？\"" end },
                 { text = "🤝 \"Victor 先生，请坐。喝杯什么？\"",
+                  ethics = { resultVsProcess = -1 },
                   effect = function()
                       playerData_.reputation = playerData_.reputation + 1
-                      -- P0-6: 伦理追踪 —— 圆滑应对 = 中性偏实用
-                      if playerData_.ethicsLedger then
-                          playerData_.ethicsLedger.resultVsProcess = playerData_.ethicsLedger.resultVsProcess - 1
-                      end
-                      table.insert(playerData_.ethicsKeyChoices or {}, { day = 8, choiceId = "victor_polite", delta = "-resultVsProcess" })
                   end,
                   result = function() return "Victor 没坐，只是又看了一圈。\n\n\"不用了。我只是来认认路——看看我的新邻居长什么样。\"\n\n他从兜里摸出一颗薄荷糖放嘴里：\"你这几台老机器……上个月我全新淘汰了一批比这好的。\"\n\n他走了。空气里留下一股贵价古龙水的味道。Kofi小声说：\"老板，我怎么觉得他在宣战？\"" end },
             },
@@ -363,9 +354,6 @@ local TUTORIAL_EVENTS = {
                     ethics = { legalVsGray = -2 },
                     effect = function()
                         playerData_.storedIntel = "victor_cost_intel"
-                        if playerData_.ethicsLedger then
-                            playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray - 2
-                        end
                         AddLog("🕵️ 你摸清了 Victor 的底牌——他在亏本补贴，撑不了太久")
                     end,
                     result = "你假装客人在 Victor 店里坐了半小时。他用的是预付费电卡，带宽也是最便宜的套餐——他在烧钱。这个信息以后会有用。"
@@ -404,9 +392,6 @@ local TUTORIAL_EVENTS = {
                     ethics = { legalVsGray = -2 },
                     effect = function()
                         playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 2)
-                        if playerData_.ethicsLedger then
-                            playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray - 2
-                        end
                         AddLog("💢 你反击了，但心里不太舒服")
                     end,
                     result = "你花了半小时注册小号给 Victor 刷了一波差评。解气，但 Kofi 看你的眼神有点复杂。"
@@ -513,9 +498,6 @@ local TUTORIAL_EVENTS = {
                     effect = function()
                         playerData_.money = (playerData_.money or 0) - 200
                         playerData_.rosterMethod = "poach"
-                        if playerData_.ethicsLedger then
-                            playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople - 1
-                        end
                         AddLog("💸 你花了 $200 从隔壁网吧挖了两个高手")
                     end,
                     result = "钱能解决的问题都不是问题——你找到了两个段位够高的选手。但隔壁网吧老板打电话来骂了你五分钟。\n\nKofi 没说什么，但看得出他不太赞同。"
@@ -545,9 +527,6 @@ local TUTORIAL_EVENTS = {
                     effect = function()
                         playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 8)
                         playerData_.kofiDadTalked = true
-                        if playerData_.ethicsLedger then
-                            playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople + 2
-                        end
                         AddLog("🤝 你决定亲自去找 Kofi 的父亲谈谈")
                     end,
                     result = "\"你……你愿意？\" Kofi 的声音有点抖。\n\n\"他是你爸，不是你的敌人。也许他只是需要亲眼看到你在做什么。\" 你拍了拍他的肩膀。\n\nKofi 深吸一口气：\"谢谢老板。真的。\""

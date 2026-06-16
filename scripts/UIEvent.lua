@@ -22,6 +22,11 @@ function BuildEventUI()
     end
     local evt = currentEvent_
 
+    -- ═══ P5: 第一季结局展示页 ═══
+    if evt.category == "ending" and evt.ending then
+        return BuildSeasonEndingUI(evt)
+    end
+
     -- 单选项事件优化：只有1个choice时，自动执行效果并直接显示结果弹窗（跳过选择弹窗）
     if evt.choices and #evt.choices == 1 and not evt._singleChoiceExecuted then
         local ch = evt.choices[1]
@@ -1149,5 +1154,144 @@ function BuildChallengeRoundUI()
     return UI.Panel { width = "100%", height = "100%", children = {
         UI.Label { text = "⚔️ 踢馆进行中...", fontSize = 16, fontColor = C.text },
     }}
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- P5: 第一季结局展示页
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function BuildSeasonEndingUI(evt)
+    local ending = evt.ending
+    if not ending then
+        currentEvent_ = nil; currentPhase_ = PHASE_MANAGE; return BuildManageUI()
+    end
+
+    -- 结局色彩映射
+    local colorMap = {
+        african_light  = { 255, 220, 80  },
+        community_leader = { 100, 200, 120 },
+        business_empire = { 80, 160, 255 },
+        gray_rise      = { 180, 80, 200  },
+        victor_mirror  = { 200, 50, 50   },
+        fight_another_day = { 160, 160, 160 },
+    }
+    local accentColor = colorMap[ending.endingId] or C.gold
+
+    -- 评分星星
+    local starCount = 0
+    if ending.score then
+        if ending.score >= 80 then starCount = 5
+        elseif ending.score >= 60 then starCount = 4
+        elseif ending.score >= 40 then starCount = 3
+        elseif ending.score >= 20 then starCount = 2
+        else starCount = 1 end
+    end
+    local stars = string.rep("⭐", starCount) .. string.rep("☆", 5 - starCount)
+
+    -- D31 加成列表
+    local bonusChildren = {}
+    if ending.d31Bonus then
+        for _, b in ipairs(ending.d31Bonus) do
+            table.insert(bonusChildren, UI.Panel {
+                flexDirection = "row", gap = 6, alignItems = "center",
+                paddingVertical = 3, width = "100%",
+                children = {
+                    UI.Label { text = "✦", fontSize = 12, fontColor = accentColor },
+                    UI.Label { text = b, fontSize = 12, fontColor = C.text, flex = 1, whiteSpace = "normal" },
+                },
+            })
+        end
+    end
+
+    -- 伦理总结
+    local ethicsSummary = ""
+    if GetEthicsSummary then
+        local ok, summary = pcall(GetEthicsSummary)
+        if ok and summary then ethicsSummary = summary end
+    end
+
+    return UI.Panel {
+        width = "100%", height = "100%",
+        backgroundColor = { 10, 8, 15, 255 },
+        justifyContent = "center", alignItems = "center",
+        children = {
+            UI.ScrollView {
+                width = "100%", height = "100%",
+                paddingHorizontal = 20, paddingTop = 30, paddingBottom = 20,
+                children = {
+                    UI.Panel {
+                        width = "100%", alignItems = "center", gap = 12,
+                        children = {
+                            -- 标题
+                            UI.Label { text = "🏆 第一季完结", fontSize = 20, fontColor = accentColor, fontWeight = "bold" },
+                            UI.Panel { height = 4 },
+
+                            -- 结局名
+                            UI.Label { text = ending.title or "结局", fontSize = 18, fontColor = C.text, fontWeight = "bold", textAlign = "center" },
+
+                            -- 星级
+                            UI.Label { text = stars, fontSize = 22, textAlign = "center" },
+                            UI.Label { text = "综合评分: " .. (ending.score or 0) .. "/100", fontSize = 13, fontColor = C.textDim },
+
+                            UI.Divider { spacing = 8 },
+
+                            -- 结局描述
+                            UI.Panel {
+                                width = "100%", padding = 12,
+                                backgroundColor = { accentColor[1], accentColor[2], accentColor[3], 20 },
+                                borderRadius = 8, borderWidth = 1,
+                                borderColor = { accentColor[1], accentColor[2], accentColor[3], 60 },
+                                children = {
+                                    UI.Label { text = ending.desc or "", fontSize = 13, fontColor = C.text, whiteSpace = "normal", lineHeight = 1.5 },
+                                },
+                            },
+
+                            -- 伦理总结
+                            ethicsSummary ~= "" and UI.Panel {
+                                width = "100%", padding = 10,
+                                backgroundColor = C.cardAlt, borderRadius = 6,
+                                children = {
+                                    UI.Label { text = "📜 经营哲学", fontSize = 13, fontColor = C.gold, fontWeight = "bold" },
+                                    UI.Label { text = ethicsSummary, fontSize = 12, fontColor = C.textDim, whiteSpace = "normal", marginTop = 4 },
+                                },
+                            } or nil,
+
+                            -- D31 加成
+                            #bonusChildren > 0 and UI.Panel {
+                                width = "100%", padding = 10,
+                                backgroundColor = { 30, 40, 30, 200 }, borderRadius = 6,
+                                borderWidth = 1, borderColor = { 100, 200, 100, 40 },
+                                gap = 4,
+                                children = {
+                                    UI.Label { text = "🎁 继续经营加成", fontSize = 13, fontColor = C.green, fontWeight = "bold" },
+                                    table.unpack(bonusChildren),
+                                },
+                            } or nil,
+
+                            UI.Panel { height = 16 },
+
+                            -- 继续按钮
+                            UI.Button {
+                                text = "▶ 继续经营 (Day 31+)", variant = "primary",
+                                width = "100%", maxWidth = 280, height = 48,
+                                fontSize = 15, fontWeight = "bold",
+                                onClick = function()
+                                    PlaySFX("click")
+                                    -- P6: 进入继续经营模式
+                                    local CityNet = package.loaded["CityNetwork"] or safeRequire and safeRequire("CityNetwork")
+                                    if CityNet then pcall(CityNet.EnterPostSeason) end
+                                    currentEvent_ = nil
+                                    currentPhase_ = PHASE_MANAGE
+                                    PlayBGM("manage")
+                                    pcall(SaveGame)
+                                    BuildUI()
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
 end
 

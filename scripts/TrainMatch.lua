@@ -597,6 +597,14 @@ function GetTeamPower()
             p = p + math.floor(p * comboBonus)
         end
     end
+    -- P4: 设施评分加成 (每10分+3%战力)
+    local SeasonOne = package.loaded["SeasonOneMainline"]
+    if SeasonOne then
+        local fpOk, fp = pcall(SeasonOne.CalcFacilityPower)
+        if fpOk and fp > 0 then
+            p = p + math.floor(p * fp * 0.003)
+        end
+    end
     return p
 end
 

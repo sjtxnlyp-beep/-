@@ -1015,6 +1015,95 @@ function ConsumePopupSlot()
 end
 
 -- ============================================================================
+-- 7.5 统一伦理(Ethics)记录函数
+-- ============================================================================
+
+--- 统一应用选择的伦理影响到 ethicsLedger 并记录关键选择
+--- 所有事件处理入口（CafeEvents, CrisisChain, RetentionV2 等）统一调用此函数
+---@param choice table 选项对象，需含 .ethics (可选) 和 .text (可选)
+---@param day number|nil 当天天数（默认取 playerData_.day）
+---@param choiceId string|nil 选择标识符（如 "cafe_evt1_c2"）
+function ApplyChoiceEthics(choice, day, choiceId)
+    if not choice then return end
+    if not playerData_ then return end
+
+    local ledger = playerData_.ethicsLedger
+    if not ledger then return end
+
+    local ethics = choice.ethics
+    if not ethics then return end
+
+    day = day or (playerData_.day or 1)
+
+    -- 累加各维度
+    for axis, delta in pairs(ethics) do
+        if ledger[axis] ~= nil then
+            ledger[axis] = ledger[axis] + delta
+            -- 钳位到 [-10, +10]
+            ledger[axis] = math.max(-10, math.min(10, ledger[axis]))
+        end
+    end
+
+    -- 记录关键选择（仅有实际 delta 的才记录）
+    playerData_.ethicsKeyChoices = playerData_.ethicsKeyChoices or {}
+    local deltaStr = ""
+    for axis, delta in pairs(ethics) do
+        if delta ~= 0 then
+            deltaStr = deltaStr .. (delta > 0 and "+" or "") .. delta .. axis .. " "
+        end
+    end
+    if deltaStr ~= "" then
+        table.insert(playerData_.ethicsKeyChoices, {
+            day = day,
+            choiceId = choiceId or "unknown",
+            text = choice.text or "",
+            delta = deltaStr,
+        })
+    end
+end
+
+--- 获取伦理主倾向标签（用于结局计算）
+---@return string dominant 主维度名
+---@return number score 该维度分数
+function GetDominantEthics()
+    if not playerData_ or not playerData_.ethicsLedger then
+        return "neutral", 0
+    end
+    local ledger = playerData_.ethicsLedger
+    local maxAxis, maxScore = "neutral", 0
+    for axis, score in pairs(ledger) do
+        if math.abs(score) > math.abs(maxScore) then
+            maxAxis = axis
+            maxScore = score
+        end
+    end
+    return maxAxis, maxScore
+end
+
+--- 获取伦理画像摘要（用于 UI 展示）
+---@return table summary {axis: {score, label, emoji}}
+function GetEthicsSummary()
+    if not playerData_ or not playerData_.ethicsLedger then return {} end
+    local ledger = playerData_.ethicsLedger
+    local LABELS = {
+        moneyVsPeople = { pos = "重人情", neg = "重利益", emoji_pos = "🤝", emoji_neg = "💰" },
+        legalVsGray = { pos = "正直守法", neg = "灰色地带", emoji_pos = "⚖️", emoji_neg = "🌑" },
+        integrationVsExtraction = { pos = "融入社区", neg = "纯粹榨取", emoji_pos = "🏘️", emoji_neg = "💼" },
+        resultVsProcess = { pos = "重过程", neg = "唯结果", emoji_pos = "🌱", emoji_neg = "🏆" },
+    }
+    local summary = {}
+    for axis, score in pairs(ledger) do
+        local def = LABELS[axis]
+        if def then
+            local label = score >= 0 and def.pos or def.neg
+            local emoji = score >= 0 and def.emoji_pos or def.emoji_neg
+            summary[axis] = { score = score, label = label, emoji = emoji }
+        end
+    end
+    return summary
+end
+
+-- ============================================================================
 -- 8. 阿布杜大叔黄金市场播报系统
 -- ============================================================================
 
