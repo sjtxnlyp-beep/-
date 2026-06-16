@@ -22,6 +22,44 @@ function BuildEventUI()
     end
     local evt = currentEvent_
 
+    -- 单选项事件优化：只有1个choice时，自动执行效果并直接显示结果弹窗（跳过选择弹窗）
+    if evt.choices and #evt.choices == 1 and not evt._singleChoiceExecuted then
+        local ch = evt.choices[1]
+        evt._singleChoiceExecuted = true  -- 防止重复执行
+        local moneyBefore = playerData_.money
+        if ch.effect then
+            local ok, err = pcall(ch.effect)
+            if not ok then log:Write(LOG_ERROR, "[EventChoice-Auto] effect error: " .. tostring(err)) end
+        end
+        ApplyIronFortress(moneyBefore)
+        local resultOk, resultText = pcall(function()
+            return type(ch.result) == "function" and ch.result() or (ch.result or "")
+        end)
+        if not resultOk then resultText = "事件已处理" end
+        local safeIcon = evt.icon or ""
+        local safeTitle = evt.title or "事件"
+        RecordNPCEncounter(safeTitle, ch.text)
+        NarrativeLayer.RecordChoice(safeTitle, ch.narrativeKey or "default")
+        -- 直接记录日志并回到管理界面
+        local logEntry = safeIcon .. " " .. safeTitle
+        if resultText and resultText ~= "" then logEntry = logEntry .. " → " .. resultText end
+        AddLog(logEntry)
+        if evt.id and NPCStorylines then pcall(NPCStorylines.OnEventCompleted, evt.id) end
+        if evt._marketVendor then
+            local MS = require("MarketStorylines")
+            pcall(MS.OnEventCompleted, evt.id, evt._marketVendor, evt._marketStage)
+        end
+        if evt._marketCrossline then
+            local MS = require("MarketStorylines")
+            pcall(MS.OnCrosslineCompleted, evt.id)
+        end
+        eventResult_ = nil
+        currentEvent_ = nil
+        currentPhase_ = PHASE_MANAGE
+        PlayBGM("manage")
+        return BuildManageUI()
+    end
+
     local choiceBtns = {}
     if evt.choices then
         for i, ch in ipairs(evt.choices) do
@@ -40,6 +78,7 @@ function BuildEventUI()
                 variant = (i == 1) and "primary" or "secondary",
                 disabled = disabled,
                 onClick = function()
+                    PlaySFX("click")
                     local moneyBefore = playerData_.money
                     if ch.effect then
                         local ok, err = pcall(ch.effect)
@@ -54,9 +93,6 @@ function BuildEventUI()
                         resultText = "事件已处理"
                     end
                     local moneyChange = playerData_.money - moneyBefore
-                    local effectStr = nil
-                    if moneyChange > 0 then effectStr = "+$" .. moneyChange
-                    elseif moneyChange < 0 then effectStr = "-$" .. (-moneyChange) end
                     local safeIcon = evt.icon or ""
                     local safeTitle = evt.title or "事件"
                     RecordNPCEncounter(safeTitle, ch.text)
@@ -71,14 +107,29 @@ function BuildEventUI()
                         or (string.find(ch.text, "送") and "kind")
                         or "default"
                     NarrativeLayer.RecordChoice(safeTitle, choiceKey)
-                    eventResult_ = {
-                        success = not string.find(resultText, "损失") and not string.find(resultText, "失去") and moneyChange >= 0,
-                        icon = safeIcon,
-                        title = safeTitle,
-                        narrative = resultText,
-                        effects = effectStr,
-                        logText = safeIcon .. " " .. safeTitle .. " → " .. resultText,
-                    }
+                    -- 直接记录日志并回到管理界面（不再弹第二个结果弹窗）
+                    local logEntry = safeIcon .. " " .. safeTitle
+                    if resultText and resultText ~= "" then
+                        logEntry = logEntry .. " → " .. resultText
+                    end
+                    AddLog(logEntry)
+                    -- 留存系统：NPC 支线剧情推进回调
+                    if evt.id and NPCStorylines then
+                        pcall(NPCStorylines.OnEventCompleted, evt.id)
+                    end
+                    -- 集市摊贩支线故事推进回调
+                    if evt._marketVendor then
+                        local MS = require("MarketStorylines")
+                        pcall(MS.OnEventCompleted, evt.id, evt._marketVendor, evt._marketStage)
+                    end
+                    -- 集市跨线联动事件完成回调
+                    if evt._marketCrossline then
+                        local MS = require("MarketStorylines")
+                        pcall(MS.OnCrosslineCompleted, evt.id)
+                    end
+                    eventResult_ = nil
+                    currentEvent_ = nil
+                    currentPhase_ = PHASE_MANAGE
                     BuildUI()
                 end,
             })

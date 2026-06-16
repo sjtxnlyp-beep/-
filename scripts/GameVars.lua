@@ -885,14 +885,17 @@ bgmSource_ = nil
 currentBGM_ = ""
 
 BGM_PATHS = {
-    title    = "audio/bgm/bgm_title.ogg",
-    manage   = "audio/bgm/bgm_manage.ogg",
-    train    = "audio/bgm/bgm_train.ogg",
-    match    = "audio/bgm/bgm_match.ogg",
-    victory  = "audio/bgm/bgm_victory.ogg",
-    event    = "audio/bgm/bgm_event.ogg",
-    gameover = "audio/bgm/bgm_gameover.ogg",
-    night    = "audio/bgm/bgm_night.ogg",
+    title     = "audio/bgm/bgm_title.ogg",
+    manage    = "audio/bgm/bgm_manage.ogg",
+    train     = "audio/bgm/bgm_train.ogg",
+    match     = "audio/bgm/bgm_match.ogg",
+    victory   = "audio/bgm/bgm_victory.ogg",
+    event     = "audio/bgm/bgm_event.ogg",
+    gameover  = "audio/bgm/bgm_gameover.ogg",
+    night     = "audio/bgm/bgm_night.ogg",
+    market    = "audio/bgm/bgm_market.ogg",
+    challenge = "audio/bgm/bgm_challenge.ogg",
+    invest    = "audio/bgm/bgm_invest.ogg",
 }
 
 SFX_PATHS = {

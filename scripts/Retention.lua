@@ -317,6 +317,340 @@ local TUTORIAL_EVENTS = {
             },
         },
     },
+
+    -----------------------------------------------------------------------
+    -- Day 9: 价格战 —— Victor 明面压价
+    -----------------------------------------------------------------------
+    [9] = {
+        {
+            id = "day9_price_war",
+            category = "主线",
+            rarity = "fixed",
+            title = "价格战",
+            desc = function()
+                return "一早就有老客跑来告诉你：Victor 的店贴出大海报——\n\"全场半价，连续一周！\"\n\n你的定价本来就不算贵，他这一刀直接砍进骨头里。今天的客流明显少了。"
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "跟进降价，留住客户",
+                    hint = "利润暴跌但客流回来",
+                    ethics = { legalVsGray = 0 },
+                    effect = function()
+                        playerData_.money = (playerData_.money or 0) - 80
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 3)
+                        AddLog("📉 跟进降价，今日利润 -$80，但客流勉强稳住")
+                    end,
+                    result = "你连夜改了价目表。老客们松了口气，但你看着账本叹气——这样撑不了几天。"
+                },
+                {
+                    text = "搞主题之夜，差异化竞争",
+                    hint = "花钱办活动，提升口碑",
+                    ethics = { resultVsProcess = 1 },
+                    effect = function()
+                        playerData_.money = (playerData_.money or 0) - 120
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 6)
+                        if playerData_.kofiJoined then
+                            playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 3)
+                        end
+                        AddLog("🎮 主题之夜大受欢迎！口碑 +6，花费 $120")
+                    end,
+                    result = "Kofi帮你布置了一场\"复古街机之夜\"。虽然花了钱，但社区里传开了：\"这家店有意思。\""
+                },
+                {
+                    text = "去 Victor 店里偷看他的成本结构",
+                    hint = "灰色手段，但能拿到情报",
+                    ethics = { legalVsGray = -2 },
+                    effect = function()
+                        playerData_.storedIntel = "victor_cost_intel"
+                        if playerData_.ethicsLedger then
+                            playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray - 2
+                        end
+                        AddLog("🕵️ 你摸清了 Victor 的底牌——他在亏本补贴，撑不了太久")
+                    end,
+                    result = "你假装客人在 Victor 店里坐了半小时。他用的是预付费电卡，带宽也是最便宜的套餐——他在烧钱。这个信息以后会有用。"
+                },
+            },
+        },
+    },
+
+    -----------------------------------------------------------------------
+    -- Day 10: 暗箭难防 —— 假差评攻击
+    -----------------------------------------------------------------------
+    [10] = {
+        {
+            id = "day10_fake_reviews",
+            category = "主线",
+            rarity = "fixed",
+            title = "暗箭难防",
+            desc = function()
+                return "Google Maps 上突然冒出 5 条一星差评，全是新注册账号：\n\"网速慢得像乌龟\"\n\"老板态度恶劣\"\n\"键盘全是油\"\n\n你知道这不是真的——但路过的新客不知道。"
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "发动老客写真实好评覆盖",
+                    hint = "合法但需要时间",
+                    ethics = { legalVsGray = 1 },
+                    effect = function()
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 4)
+                        AddLog("⭐ 老客们帮忙写了好评，口碑正在恢复")
+                    end,
+                    result = "你在群里发了消息，老客们纷纷响应。真实的五星评价很快把假的淹没了——虽然慢了一天。"
+                },
+                {
+                    text = "以其人之道还治——给 Victor 也刷差评",
+                    hint = "快速但有道德代价",
+                    ethics = { legalVsGray = -2 },
+                    effect = function()
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 2)
+                        if playerData_.ethicsLedger then
+                            playerData_.ethicsLedger.legalVsGray = playerData_.ethicsLedger.legalVsGray - 2
+                        end
+                        AddLog("💢 你反击了，但心里不太舒服")
+                    end,
+                    result = "你花了半小时注册小号给 Victor 刷了一波差评。解气，但 Kofi 看你的眼神有点复杂。"
+                },
+                {
+                    text = "不理会，专注做好自己",
+                    hint = "短期亏损，长期正道",
+                    ethics = { resultVsProcess = 1 },
+                    effect = function()
+                        playerData_.reputation = math.max(0, (playerData_.reputation or 50) - 3)
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 4)
+                        AddLog("🧘 你没理会差评，专心经营。短期客流受影响")
+                    end,
+                    result = "\"老板，我觉得你做得对，\" Kofi说，\"不跟小人计较。客人用了就知道好不好。\"\n\n你点点头——但今天确实少了几个新面孔。"
+                },
+            },
+        },
+    },
+
+    -----------------------------------------------------------------------
+    -- Day 11: AEL 邮件 —— 正式赛事邀请
+    -----------------------------------------------------------------------
+    [11] = {
+        {
+            id = "day11_ael_invitation",
+            category = "主线",
+            rarity = "fixed",
+            title = "AEL 邮件",
+            desc = function()
+                local kofiLine = playerData_.kofiJoined
+                    and "\n\nKofi 看到邮件整个人都亮了：\"老板！这是 AEL！非洲电竞联赛！如果我们能参加……\""
+                    or "\n\n你想起 Kofi 之前提过电竞比赛的事——也许该认真考虑了。"
+                return "收件箱里有一封来自 AEL（非洲电竞联赛）的邮件：\n\n\"尊敬的网吧经营者：\n第 14 届 AEL 地区预选赛将于两周后开始。您的网吧已获得参赛资格。\n请在 Day 14 前确认报名并提交队员名单。\"\n\n这是改变一切的机会——也是巨大的压力。" .. kofiLine
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "全力备战！这是我们的机会！",
+                    hint = "士气大涨，但后续压力也大",
+                    ethics = { resultVsProcess = 1 },
+                    effect = function()
+                        playerData_.aelRegistered = true
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 5)
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 3)
+                        AddLog("🏆 你决定参加 AEL！Kofi 激动得差点跳起来")
+                    end,
+                    result = "\"我们要参加！\" 你拍桌子做了决定。\n\nKofi 的眼里有光：\"老板，你不会后悔的。我这几年一直在练——就等这个机会！\"\n\n你知道接下来几天会很忙，但看着 Kofi 的表情，你觉得值了。"
+                },
+                {
+                    text = "想参加，但不确定我们准备好了……",
+                    hint = "谨慎，但 Kofi 可能有点失望",
+                    ethics = { resultVsProcess = -1 },
+                    effect = function()
+                        playerData_.aelRegistered = true
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 2)
+                        AddLog("🤔 你犹豫了一下，但还是决定试试")
+                    end,
+                    result = "\"我们……试试吧。\" 你说得不太确定。\n\nKofi 点点头：\"老板，交给我。我会证明我们可以的。\"\n\n他的语气很平静，但你看到他握紧了拳头。"
+                },
+            },
+        },
+    },
+
+    -----------------------------------------------------------------------
+    -- Day 12: 人不够 —— 阵容压力
+    -----------------------------------------------------------------------
+    [12] = {
+        {
+            id = "day12_roster_pressure",
+            category = "主线",
+            rarity = "fixed",
+            title = "人不够",
+            desc = function()
+                return "AEL 要求五人队伍。算上 Kofi，你还差人。\n\n社区里有几个常客打得不错，但要说比赛级别……Kofi 皱着眉看着在线的几个人：\"老板，光靠我一个 carry 不了五个位置。\""
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "在社区贴招募告示，公开选拔",
+                    hint = "公平但可能来的人水平参差",
+                    ethics = { moneyVsPeople = 1 },
+                    effect = function()
+                        playerData_.reputation = math.min(100, (playerData_.reputation or 50) + 4)
+                        playerData_.rosterMethod = "open"
+                        AddLog("📋 你在店里和社区群贴了招募告示")
+                    end,
+                    result = "告示贴出去半小时，就有三个年轻人来问。水平确实参差，但热情都很高。Kofi 说他可以带训练。\n\n\"有热情就有希望，\" 他说。"
+                },
+                {
+                    text = "让 Kofi 推荐他认识的选手",
+                    hint = "Kofi 有人脉，质量高但圈子窄",
+                    ethics = { integrationVsExtraction = 1 },
+                    effect = function()
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 4)
+                        playerData_.rosterMethod = "kofi_pick"
+                        AddLog("🤝 Kofi 去联系了几个老朋友")
+                    end,
+                    result = "Kofi 打了几个电话，第二天带来两个瘦高的年轻人。\"这是 Ama 和 Kwesi，我以前网吧认识的。段位都是钻石以上。\"\n\n他们看起来靠谱——但 Kofi 明显是这个小团体的核心。"
+                },
+                {
+                    text = "花钱从别的网吧挖人",
+                    hint = "快但贵，而且伤口碑",
+                    ethics = { moneyVsPeople = -1, legalVsGray = -1 },
+                    effect = function()
+                        playerData_.money = (playerData_.money or 0) - 200
+                        playerData_.rosterMethod = "poach"
+                        if playerData_.ethicsLedger then
+                            playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople - 1
+                        end
+                        AddLog("💸 你花了 $200 从隔壁网吧挖了两个高手")
+                    end,
+                    result = "钱能解决的问题都不是问题——你找到了两个段位够高的选手。但隔壁网吧老板打电话来骂了你五分钟。\n\nKofi 没说什么，但看得出他不太赞同。"
+                },
+            },
+        },
+    },
+
+    -----------------------------------------------------------------------
+    -- Day 13: Kofi 的家事 —— 家庭与梦想的拉扯
+    -----------------------------------------------------------------------
+    [13] = {
+        {
+            id = "day13_kofi_family",
+            category = "主线",
+            rarity = "fixed",
+            title = "Kofi 的家事",
+            desc = function()
+                return "训练到一半，Kofi 接了个电话，脸色变了。\n\n挂了电话他沉默了好一会儿才开口：\"我爸又打来了。他说如果我不回去继承鱼摊……就当没我这个儿子。\"\n\n他看着屏幕，手还放在键盘上：\"老板，我真的很想打这个比赛。但我爸他……他不懂。\""
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "我去跟你爸聊聊，让他来看你比赛",
+                    hint = "仗义，但你要亲自出面",
+                    ethics = { moneyVsPeople = 2 },
+                    effect = function()
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 8)
+                        playerData_.kofiDadTalked = true
+                        if playerData_.ethicsLedger then
+                            playerData_.ethicsLedger.moneyVsPeople = playerData_.ethicsLedger.moneyVsPeople + 2
+                        end
+                        AddLog("🤝 你决定亲自去找 Kofi 的父亲谈谈")
+                    end,
+                    result = "\"你……你愿意？\" Kofi 的声音有点抖。\n\n\"他是你爸，不是你的敌人。也许他只是需要亲眼看到你在做什么。\" 你拍了拍他的肩膀。\n\nKofi 深吸一口气：\"谢谢老板。真的。\""
+                },
+                {
+                    text = "这是你自己的路，你自己决定",
+                    hint = "尊重但有点冷",
+                    ethics = { moneyVsPeople = 0 },
+                    effect = function()
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 2)
+                        AddLog("🤷 你让 Kofi 自己处理家事")
+                    end,
+                    result = "Kofi 点了点头：\"也是……我自己的事。\"\n\n他回到座位继续训练，但你看得出来他心不在焉。今晚的训练质量明显下降了。"
+                },
+                {
+                    text = "我每月给你爸寄点钱，补偿鱼摊损失",
+                    hint = "用钱解决，简单粗暴",
+                    ethics = { moneyVsPeople = 1, resultVsProcess = -1 },
+                    effect = function()
+                        playerData_.money = (playerData_.money or 0) - 150
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 5)
+                        playerData_.kofiDadPaid = true
+                        AddLog("💰 你承诺每月补贴 Kofi 家里 $150")
+                    end,
+                    result = "\"我会跟你爸说，每个月我出一份钱，比鱼摊赚的不少。\" \n\nKofi 愣了一下：\"老板，你不用……\"\n\n\"行了，专心训练。钱的事我来想办法。\"\n\n他重新坐好，眼眶有点红——但手指已经回到了键盘上。"
+                },
+            },
+        },
+    },
+
+    -----------------------------------------------------------------------
+    -- Day 14: 首战前夜 —— Victor 挖人 + 最终确认
+    -----------------------------------------------------------------------
+    [14] = {
+        {
+            id = "day14_eve_of_battle",
+            category = "主线",
+            rarity = "fixed",
+            title = "首战前夜",
+            desc = function()
+                local rosterLine = ""
+                if playerData_.rosterMethod == "kofi_pick" then
+                    rosterLine = "\n\nAma 和 Kwesi 也到了，三个人围在一起研究对手录像。"
+                elseif playerData_.rosterMethod == "open" then
+                    rosterLine = "\n\n招募来的队员们准时到场，虽然紧张但眼神坚定。"
+                else
+                    rosterLine = "\n\n花钱挖来的选手到了——他们很职业，但和 Kofi 之间明显还有距离。"
+                end
+                return "明天就是 AEL 地区预选赛第一轮。\n\nKofi 在做最后的准备——突然他接到一条消息，脸色变了：\n\n\"Victor 给我发私信了。他说……他愿意出三倍工资让我去他的队。\"" .. rosterLine .. "\n\nKofi 看着你，等你的反应。"
+            end,
+            type = "choice",
+            choices = {
+                {
+                    text = "Kofi，你是自由人。但你走之前看看这里。",
+                    hint = "以情动人，用信任对抗金钱",
+                    ethics = { moneyVsPeople = 2 },
+                    effect = function()
+                        local trust = playerData_.kofiTrust or 50
+                        if trust >= 60 then
+                            playerData_.kofiStays = true
+                            playerData_.kofiTrust = math.min(100, trust + 5)
+                            AddLog("❤️ Kofi 选择留下。\"这里是我的家。\"")
+                        else
+                            playerData_.kofiStays = false
+                            playerData_.kofiTrust = math.max(0, trust - 10)
+                            AddLog("💔 Kofi 信任不够，他犹豫了很久……最终离开了")
+                        end
+                    end,
+                    result = function()
+                        if playerData_.kofiStays then
+                            return "Kofi 沉默了很久。然后他把手机锁了屏。\n\n\"老板，我记得你第一天让我免费用电脑那次。\" 他笑了，\"三倍工资？他买不走我。\"\n\n你没说话，只是递了一瓶水。明天，你们一起上场。"
+                        else
+                            return "Kofi 低着头：\"老板……对不起。我妈需要钱治病，我爸还在生气……\"\n\n他走了。你看着空荡荡的椅子，第一次觉得这间网吧太安静了。\n\n但比赛还要继续。你必须想办法。"
+                        end
+                    end,
+                },
+                {
+                    text = "我给你涨薪，赢了比赛还有奖金分成",
+                    hint = "用利益留人",
+                    ethics = { resultVsProcess = -1 },
+                    effect = function()
+                        playerData_.money = (playerData_.money or 0) - 100
+                        playerData_.kofiStays = true
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 2)
+                        AddLog("💵 你许诺涨薪+奖金分成，Kofi 留了下来")
+                    end,
+                    result = "\"涨薪，奖金三七分。\" 你开出条件。\n\nKofi 想了想：\"行。但不只是钱的事——我信你，老板。\"\n\n他留了下来。但你知道，如果比赛输了，这个承诺会变成压力。"
+                },
+                {
+                    text = "他敢挖我的人？明天比赛上见真章！",
+                    hint = "怒气激励，可能反噬",
+                    ethics = { resultVsProcess = -1 },
+                    effect = function()
+                        playerData_.kofiStays = true
+                        playerData_.kofiTrust = math.min(100, (playerData_.kofiTrust or 50) + 1)
+                        playerData_.teamMorale = (playerData_.teamMorale or 50) + 10
+                        AddLog("🔥 你把怒气转化为动力，全队士气高涨！")
+                    end,
+                    result = "你猛拍桌子：\"Victor 那个混蛋！他以为撒钱就能赢？明天我们在赛场上让他好看！\"\n\nKofi 被你的气势感染了，笑了出来：\"行，老板说打就打！\"\n\n全队的肾上腺素都起来了——但希望明天不会变成冲动。"
+                },
+            },
+        },
+    },
 }
 
 --- 获取指定天数的教程事件列表

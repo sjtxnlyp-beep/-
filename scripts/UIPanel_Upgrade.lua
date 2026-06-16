@@ -54,10 +54,8 @@ local function BuildUpgradeProgressPanel()
                 }},
                 UI.Label { id = "upgrade-time-label", text = timeStr, fontSize = 16, fontColor = C.gold, fontWeight = "bold" },
             }},
-            -- 进度条
-            UI.Panel { width = "100%", height = 8, backgroundColor = { C.border[1], C.border[2], C.border[3], 120 }, borderRadius = PX.radiusSm, overflow = "hidden", children = {
-                UI.Panel { id = "upgrade-progress-fill", width = math.floor(pct * 100) .. "%", height = "100%", backgroundColor = C.green, borderRadius = PX.radiusSm },
-            }},
+            -- 像素风进度条
+            PixelBar(pct, { height = 8, barColor = C.green }),
             table.unpack(adChildren),
         },
     }
@@ -297,12 +295,9 @@ function BuildUpgradeCard()
                 UI.Label { text = starIcons, fontSize = 14 },
                 UI.Label { text = rating.starName, fontSize = 14, fontWeight = "bold", fontColor = C.gold },
                 UI.Panel { flex = 1 },
-                UI.Label { text = "Lv." .. rating.totalLevel, fontSize = 12, fontColor = C.textLight },
+                PixelBadge(tostring(rating.totalLevel), { size = 20, color = C.gold }),
             }},
-            UI.Panel { width = "100%", height = 6, backgroundColor = { 50, 50, 40, 180 }, borderRadius = 3, overflow = "hidden", children = {
-                UI.Panel { width = math.min(100, progressPct) .. "%", height = "100%", borderRadius = 3,
-                    backgroundColor = rating.nextStarName and C.gold or C.green },
-            }},
+            PixelBar(math.min(1, progressPct / 100), { height = 6, barColor = rating.nextStarName and C.gold or C.green }),
             UI.Label { text = ratingSubText, fontSize = 11, fontColor = C.textDim },
         },
     })

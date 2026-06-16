@@ -1708,6 +1708,62 @@ function BuildManageUI()
             })
         end
 
+        -- ═══ Kofi 状态小组件（Day5+ kofi加入后显示） ═══
+        if playerData_.kofiJoined then
+            local kTrust = playerData_.kofiTrust or 50
+            -- 信任等级 & 颜色
+            local kLevel, kColor, kIcon
+            if kTrust >= 80 then
+                kLevel = "挚友" kColor = { 100, 240, 180, 255 } kIcon = "💚"
+            elseif kTrust >= 60 then
+                kLevel = "信赖" kColor = { 180, 230, 140, 255 } kIcon = "🤝"
+            elseif kTrust >= 40 then
+                kLevel = "熟悉" kColor = { 200, 200, 120, 255 } kIcon = "👋"
+            elseif kTrust >= 20 then
+                kLevel = "认识" kColor = { 200, 160, 100, 255 } kIcon = "🙂"
+            else
+                kLevel = "疏远" kColor = { 180, 100, 80, 255 } kIcon = "😐"
+            end
+            -- 简短状态描述
+            local kStatus = ""
+            if playerData_.kofiStays == false then
+                kStatus = "已离队" kIcon = "💔" kColor = { 180, 80, 80, 255 }
+            elseif playerData_.aelRegistered and (playerData_.day or 0) >= 12 then
+                kStatus = "备战AEL中"
+            elseif playerData_.kofiJoined then
+                kStatus = "训练中"
+            end
+            -- 信任条（mini progress bar）
+            local barW = 60
+            local fillW = math.floor(barW * math.min(1, kTrust / 100))
+            table.insert(floatChildren, UI.Panel {
+                width = "100%", paddingHorizontal = 10, paddingVertical = 5,
+                backgroundColor = { 40, 50, 70, 140 },
+                borderRadius = 6,
+                borderWidth = 1, borderColor = { 60, 80, 120, 100 },
+                flexDirection = "row", alignItems = "center", gap = 8,
+                children = {
+                    UI.Label { text = kIcon, fontSize = 13 },
+                    UI.Label { text = "Kofi", fontSize = 11, fontWeight = "bold",
+                        fontColor = { 220, 220, 255, 255 } },
+                    -- 信任进度条
+                    UI.Panel {
+                        width = barW, height = 6, borderRadius = 3,
+                        backgroundColor = { 30, 30, 50, 200 },
+                        children = {
+                            UI.Panel {
+                                width = fillW, height = 6, borderRadius = 3,
+                                backgroundColor = kColor,
+                            },
+                        },
+                    },
+                    UI.Label { text = kLevel, fontSize = 10, fontColor = kColor },
+                    kStatus ~= "" and UI.Label { text = "· " .. kStatus, fontSize = 9,
+                        fontColor = { 160, 160, 180, 180 } } or nil,
+                },
+            })
+        end
+
         -- 每日赞助条（动态瓶颈检测，奖励玩家当前最需要的资源）
         -- P0-8: D1-D3 抑制广告条，确保新手叙事体验不被打断
         do

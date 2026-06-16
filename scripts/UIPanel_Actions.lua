@@ -8,6 +8,98 @@ local TabSubQuests = require("TabSubQuests")
 -- ═══ 智能折叠状态（非高频栏目默认折叠，减少滚动） ═══
 sectionFolded_ = sectionFolded_ or {}
 
+-- ═══ 行动结果弹窗系统（执行完毕后展示结果反馈） ═══
+---@type {icon: string, title: string, desc: string, effects: string[], color?: number[]}|nil
+actionResultData_ = actionResultData_ or nil
+
+--- 显示行动结果弹窗
+---@param data {icon: string, title: string, desc: string, effects: string[], color?: number[]}
+function ShowActionResult(data)
+    actionResultData_ = data
+    PlaySFX("click")
+    BuildUI()
+end
+
+--- 构建行动结果弹窗 UI
+function BuildActionResultPopup()
+    if not actionResultData_ then return nil end
+    local data = actionResultData_
+    local UI = require("urhox-libs/UI")
+
+    local accentColor = data.color or { 245, 215, 128, 255 }
+
+    -- 效果行
+    local effectLabels = {}
+    for _, eff in ipairs(data.effects or {}) do
+        table.insert(effectLabels, UI.Label {
+            text = eff,
+            fontSize = 12.5, fontColor = { 180, 240, 160, 255 },
+            width = "100%", marginBottom = 2,
+        })
+    end
+
+    local cardChildren = {}
+    -- 图标 + 标题
+    table.insert(cardChildren, UI.Label {
+        text = data.icon or "✅",
+        fontSize = 28,
+    })
+    table.insert(cardChildren, UI.Label {
+        text = data.title or "行动完成",
+        fontSize = 15, fontWeight = "bold",
+        fontColor = accentColor,
+        marginTop = 4,
+    })
+    -- 分割线
+    table.insert(cardChildren, UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 25 }, marginVertical = 8 })
+    -- 描述
+    table.insert(cardChildren, UI.Label {
+        text = data.desc or "",
+        fontSize = 12.5, fontColor = { 220, 210, 190, 230 },
+        width = "100%", marginBottom = 6,
+    })
+    -- 效果列表
+    if #effectLabels > 0 then
+        table.insert(cardChildren, UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 15 }, marginVertical = 4 })
+        for _, el in ipairs(effectLabels) do table.insert(cardChildren, el) end
+    end
+    -- 确认按钮
+    table.insert(cardChildren, UI.Button {
+        text = "知道了", width = "100%", height = 40, fontSize = 13, fontWeight = "bold",
+        borderRadius = 8, marginTop = 10,
+        backgroundColor = { 50, 40, 28, 255 },
+        fontColor = accentColor,
+        borderWidth = 1.5, borderColor = { 190, 148, 50, 200 },
+        onClick = function()
+            actionResultData_ = nil
+            PlaySFX("click")
+            BuildUI()
+        end,
+    })
+
+    return UI.Panel {
+        position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+        backgroundColor = { 0, 0, 0, 170 },
+        justifyContent = "center", alignItems = "center",
+        onClick = function()
+            actionResultData_ = nil
+            PlaySFX("click")
+            BuildUI()
+        end,
+        children = {
+            UI.Panel {
+                width = "78%", maxWidth = 300,
+                backgroundColor = { 28, 22, 16, 250 },
+                borderRadius = 14, borderWidth = 1.5,
+                borderColor = { 160, 130, 60, 180 },
+                paddingHorizontal = 18, paddingVertical = 16, gap = 4,
+                alignItems = "center",
+                children = cardChildren,
+            },
+        },
+    }
+end
+
 -- ═══ 行动选择弹窗系统（点击按钮后弹出选项面板） ═══
 ---@type {title: string, options: table[]}|nil
 actionChoiceData_ = actionChoiceData_ or nil
@@ -230,6 +322,16 @@ function HasTabActivity(tabId)
 end
 
 function BuildActionCard()
+    -- ── 检测大额投资结算弹窗（pendingInvestResult） ──
+    if playerData_.pendingInvestResult then
+        local result = playerData_.pendingInvestResult
+        playerData_.pendingInvestResult = nil
+        eventResult_ = result
+        currentPhase_ = PHASE_EVENT
+        BuildUI()
+        return nil  -- 让 eventResult 弹窗先展示
+    end
+
     local ap = playerData_.actionPoints or 3
     local noAP = ap <= 0
 
@@ -528,31 +630,34 @@ function BuildActionCard()
     end
     if ProgressiveUnlock.IsUnlocked("btn_flyers") then
         local flyCost = GetCityCost and GetCityCost(30) or 30
-        -- P2B: D1-D4 按钮改名为"主线行动"并添加推荐标识
-        local isEarlyDay = (playerData_.day or 1) <= 4
-        local flyerTitle = isEarlyDay and "⭐ 主线行动" or "贴传单"
-        local flyerReward = isEarlyDay and "贴传单·声望↑" or "↑ 声望 / 曝光"
-        -- P2B: Day2-4 主线行动路由（每天不同事件）
+        -- P2B: Day1-4 主线行动路由（每天不同事件）
         local curDay = playerData_.day or 1
         local mainAction = nil  -- {reward, price, onClick, disabled}
-        if curDay == 2 and not playerData_.day2CrisisDone then
+        if curDay == 1 and not playerData_.day1FlyerDone then
+            mainAction = { reward = "📋 贴传单·声望↑", price = "$" .. flyCost, fn = nil }
+        elseif curDay == 2 and not playerData_.day2CrisisDone then
             mainAction = { reward = "⚡ 电费房租·生存抉择", price = "免费", fn = DoDay2MainAction }
         elseif curDay == 3 and not playerData_.day3KofiDone then
             mainAction = { reward = "👀 寻找神秘少年", price = "免费", fn = DoDay3MainAction }
         elseif curDay == 4 and not playerData_.day4CommunityDone then
             mainAction = { reward = "🏘️ 街区信任·三选抉择", price = "免费", fn = DoDay4MainAction }
         end
+        -- 只有当天有未完成主线事件时才显示"主线行动"，否则显示"贴传单"
+        local flyerTitle = mainAction and "⭐ 主线行动" or "贴传单"
+        local flyerReward = mainAction and mainAction.reward or "↑ 声望 / 曝光"
         local btnPrice = mainAction and mainAction.price or ("$" .. flyCost)
-        local btnReward = mainAction and mainAction.reward or flyerReward
-        local btnDisabled = mainAction and noAP or (noAP or playerData_.money < flyCost)
-        local btnReason = (not mainAction and playerData_.money < flyCost) and "余额不足" or nil
+        local btnReward = flyerReward
+        -- Day2-4 主线免费只看AP；Day1 主线和普通贴传单都需要钱+AP
+        local needsMoney = (not mainAction) or (mainAction and not mainAction.fn)  -- Day1 mainAction.fn==nil → 走贴传单
+        local btnDisabled = noAP or (needsMoney and playerData_.money < flyCost)
+        local btnReason = (needsMoney and playerData_.money < flyCost) and "余额不足" or nil
         btnFlyer_ = GridBtn {
             title = flyerTitle, price = btnPrice,
             reward = btnReward,
             disabled = btnDisabled,
             reason = btnReason,
             onClick = function()
-                if mainAction then
+                if mainAction and mainAction.fn then
                     mainAction.fn()
                 else
                     DoPostFlyers()
@@ -1552,29 +1657,55 @@ function BuildActionCard()
         if cafePanel then table.insert(cardChildren, cafePanel) end
 
     elseif tab == ACTION_TAB_HOOD then
-        -- ═══ 🏘️ 街区 Tab（社区关系：逛集市/社交/声望） ═══
+        -- ═══ 🏘️ 街区 Tab（精简版：逛集市/社区活动/地盘经营 + 赞助广告） ═══
         local hoodBtns = {}
-        -- 逛集市（命名引用，不依赖数组索引）
+
+        -- 1️⃣ 逛集市（已有 btnMarket_ 引用）
         if btnMarket_ then table.insert(hoodBtns, btnMarket_) end
-        -- 社交行动（请吃烤肉、免费招募广告、媒体采访、声望消耗行动）
-        if #socialActions > 0 and ProgressiveUnlock.IsUnlocked("panel_social") then
-            for _, btn in ipairs(socialActions) do table.insert(hoodBtns, btn) end
+
+        -- 2️⃣ 社区活动（合并：请吃烤肉+社区互助+声望消耗 → 统一入口）
+        local communityDone = playerData_.communityEventToday
+        local commReward = "+声望10~25 · 随机触发支线"
+        table.insert(hoodBtns, GridBtn {
+            title = "🤝 社区活动", price = communityDone and "今日已做" or "AP1",
+            reward = communityDone and "—" or commReward,
+            disabled = noAP or communityDone,
+            reason = communityDone and "明天再来" or nil,
+            onClick = function() DoCommunityEvent() end,
+        })
+
+        -- 3️⃣ 地盘经营（Day12+ 解锁：收租/保护费/街区影响力）
+        if (playerData_.day or 1) >= 12 then
+            local territoryDone = playerData_.territoryManagedToday
+            table.insert(hoodBtns, GridBtn {
+                title = "🏗️ 地盘经营", price = territoryDone and "今日已做" or "AP1 · $100",
+                reward = territoryDone and "—" or "声望+15 · 3天被动收入",
+                disabled = noAP or territoryDone or (playerData_.money or 0) < 100,
+                reason = territoryDone and "明天再来" or ((playerData_.money or 0) < 100 and "余额不足" or nil),
+                onClick = function() DoTerritoryManage() end,
+            })
         end
+
         if #hoodBtns > 0 then
             table.insert(cardChildren, UI.Panel {
                 width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
                 children = hoodBtns,
             })
         end
-        -- 街区支线（拜访小贩/社区互助/打探风声/保护）
-        local hoodSubQ = TabSubQuests.GetHoodActions()
-        if #hoodSubQ > 0 then
-            table.insert(cardChildren, SectionTitle("🏘️", "邻里互动"))
-            local hqBtns = {}
-            for _, a in ipairs(hoodSubQ) do table.insert(hqBtns, GridBtn(a)) end
-            table.insert(cardChildren, UI.Panel {
-                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                children = hqBtns,
+
+        -- 📸 赞助广告：网红探店（声望+客流加成）
+        if AdManager.CanWatch("hood_influencer", playerData_.day) then
+            table.insert(cardChildren, SectionTitle("📸", "赞助合作"))
+            table.insert(cardChildren, AdManager.AdButton {
+                sceneId = "hood_influencer", day = playerData_.day,
+                text = "📸 网红探店 → 声望+20 · 明日客流+30%",
+                height = 40, fontSize = 13,
+                onReward = function()
+                    playerData_.reputation = (playerData_.reputation or 0) + 20
+                    playerData_.tomorrowFlowBonus = (playerData_.tomorrowFlowBonus or 0) + 0.3
+                    AddLog("📸 网红博主来你店里打卡直播，粉丝们纷纷种草！声望+20，明天客流暴增！")
+                    BuildUI()
+                end,
             })
         end
 
@@ -1624,153 +1755,142 @@ function BuildActionCard()
         end
 
     elseif tab == ACTION_TAB_RISK then
-        -- ═══ 💰 风险 Tab（高风险投机：黄金/二手/包场/扩张） ═══
-        -- 黄金交易
+        -- ═══ 💰 投资 Tab（精简版：黄金交易/冒险生意/大额投资 + 赞助广告） ═══
+
+        -- 1️⃣ 黄金交易面板（已有 goldPanel，Day10+ 解锁）
         if goldPanel and ProgressiveUnlock.IsUnlocked("panel_gold") then
             table.insert(cardChildren, goldPanel)
         end
-        -- 高风险副业按钮
+
+        -- 2️⃣ 冒险生意（合并：二手淘宝+接包场+信息差套利 → 统一入口）
         local riskBtns = {}
-        -- 二手淘宝
-        if playerData_.day >= 7 then
-            table.insert(riskBtns, GridBtn {
-                title = "🛒 二手淘宝", price = "AP1 · $50+",
-                disabled = noAP or playerData_.money < 50,
-                onClick = function() DoSecondHandMarket() end,
-            })
+        local riskyDone = playerData_.riskyBizToday
+        local riskyMin = 80 + math.floor((playerData_.day or 1) * 5)
+        table.insert(riskBtns, GridBtn {
+            title = "🎲 冒险生意", price = riskyDone and "今日已做" or ("AP1 · $" .. riskyMin),
+            reward = riskyDone and "—" or "1.5~3x回报 或 血本无归",
+            disabled = noAP or riskyDone or (playerData_.money or 0) < riskyMin,
+            reason = riskyDone and "明天再来" or ((playerData_.money or 0) < riskyMin and "余额不足" or nil),
+            onClick = function() DoRiskyBusiness(riskyMin) end,
+        })
+
+        -- 3️⃣ 大额投资（Day12+ 解锁：投入资金，3天后结算）
+        if (playerData_.day or 1) >= 12 then
+            local activeInvest = playerData_.partnerInvestment
+            if activeInvest then
+                local daysLeft = (activeInvest.returnDay or 0) - (playerData_.day or 1)
+                if daysLeft > 0 then
+                    table.insert(riskBtns, GridBtn {
+                        title = "📈 投资中", price = daysLeft .. "天后结算",
+                        reward = "已投$" .. (activeInvest.amount or 0),
+                        disabled = true, reason = "等待回报",
+                        onClick = function() end,
+                    })
+                else
+                    -- 结算日到了但还没结算（由EndDay处理），显示可再投
+                    local bigMin = 300 + math.floor((playerData_.day or 1) * 15)
+                    table.insert(riskBtns, GridBtn {
+                        title = "📈 大额投资", price = "$" .. bigMin .. "+",
+                        reward = "3天后 2~3x 或 亏60%",
+                        disabled = (playerData_.money or 0) < bigMin,
+                        reason = (playerData_.money or 0) < bigMin and "余额不足" or nil,
+                        onClick = function() DoBigInvestment(bigMin) end,
+                    })
+                end
+            else
+                local bigMin = 300 + math.floor((playerData_.day or 1) * 15)
+                table.insert(riskBtns, GridBtn {
+                    title = "📈 大额投资", price = "$" .. bigMin .. "+",
+                    reward = "3天后 2~3x 或 亏60%",
+                    disabled = (playerData_.money or 0) < bigMin,
+                    reason = (playerData_.money or 0) < bigMin and "余额不足" or nil,
+                    onClick = function() DoBigInvestment(bigMin) end,
+                })
+            end
         end
-        -- 接包场
-        if playerData_.computers >= 4 then
-            table.insert(riskBtns, GridBtn {
-                title = "🎉 接包场", price = "AP1",
-                disabled = noAP,
-                onClick = function() DoCafeRental() end,
-            })
-        end
+
         if #riskBtns > 0 then
             table.insert(cardChildren, UI.Panel {
                 width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
                 children = riskBtns,
             })
         end
-        -- 扩张经营（借钱 + 开分店）
-        if #expandActions > 0 and ProgressiveUnlock.IsUnlocked("panel_branch") then
-            table.insert(cardChildren, SectionTitle("🏗️", "扩张经营"))
-            local ep = SectionPanel(expandActions)
-            if ep then table.insert(cardChildren, ep) end
-        end
-        -- 投资支线（信息差套利/合伙经营/期货投机）
-        local riskSubQ = TabSubQuests.GetRiskActions()
-        if #riskSubQ > 0 then
-            table.insert(cardChildren, SectionTitle("📊", "金融投机"))
-            local rqBtns = {}
-            for _, a in ipairs(riskSubQ) do table.insert(rqBtns, GridBtn(a)) end
-            table.insert(cardChildren, UI.Panel {
-                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                children = rqBtns,
+
+        -- 💡 赞助广告：神秘线报（下次交易加成）
+        if AdManager.CanWatch("risk_insider", playerData_.day) then
+            table.insert(cardChildren, SectionTitle("💡", "赞助合作"))
+            table.insert(cardChildren, AdManager.AdButton {
+                sceneId = "risk_insider", day = playerData_.day,
+                text = "💡 神秘线报 → 下次交易成功率+50%",
+                height = 40, fontSize = 13,
+                onReward = function()
+                    playerData_.tradeBoostNext = true
+                    AddLog("💡 一位神秘商人给了你一条内幕消息……下次交易时运势大增！")
+                    BuildUI()
+                end,
             })
         end
 
     elseif tab == ACTION_TAB_REST then
-        -- ═══ 💼 副业 Tab（赚外快 · 赞助商合作 · 自我提升） ═══
+        -- ═══ 💼 副业 Tab（精简版：打零工/辅导补习/学一招 + 赞助广告） ═══
+        local restBtns = {}
 
-        -- 加班按钮（AP耗尽兜底）
-        if overtimeBtn then table.insert(cardChildren, overtimeBtn) end
-
-        -- ────────────────────────────────────────
-        -- 第一段：赚外快（修手机 + 摆摊/快递/补习）
-        -- ────────────────────────────────────────
-        table.insert(cardChildren, SectionTitle("💰", "赚外快"))
-        local jobBtns = {}
-        -- 修手机（核心安全收入，Day1 可用）
-        table.insert(jobBtns, GridBtn {
-            title = "📱 修手机", price = "AP1",
-            reward = "+$" .. (GetCityCost and math.floor(GetCityCost(35)) or 35),
-            disabled = noAP,
-            onClick = function() DoPhoneRepair() end,
+        -- 1️⃣ 打零工（合并：修手机+摆摊+代收快递 → 统一入口，稳定收入）
+        local oddJobDone = playerData_.oddJobToday
+        local oddJobPay = 30 + math.floor((playerData_.day or 1) * 4)
+        table.insert(restBtns, GridBtn {
+            title = "🔧 打零工", price = oddJobDone and "今日已做" or "AP1",
+            reward = oddJobDone and "—" or ("+$" .. oddJobPay .. "~" .. math.floor(oddJobPay * 1.5)),
+            disabled = noAP or oddJobDone,
+            reason = oddJobDone and "明天再来" or nil,
+            onClick = function() DoOddJob(oddJobPay) end,
         })
-        -- 新副业（Day5/8/12 逐步解锁）
-        local sideJobs = TabSubQuests.GetSideJobActions()
-        for _, a in ipairs(sideJobs) do
-            table.insert(jobBtns, GridBtn(a))
-        end
-        if #jobBtns > 0 then
-            table.insert(cardChildren, UI.Panel {
-                width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                children = jobBtns,
+
+        -- 2️⃣ 辅导补习（Day12+ 解锁：高收益，消耗2AP）
+        if (playerData_.day or 1) >= 12 then
+            local tutorDone = playerData_.tutorDoneToday
+            local tutorFee = 60 + math.floor((playerData_.day or 1) * 3)
+            table.insert(restBtns, GridBtn {
+                title = "🎓 辅导补习", price = tutorDone and "今日已教" or "AP2",
+                reward = tutorDone and "—" or ("+$" .. tutorFee .. " +声望8"),
+                disabled = (playerData_.actionPoints or 0) < 2 or tutorDone,
+                reason = tutorDone and "每天限一次" or ((playerData_.actionPoints or 0) < 2 and "需要2AP" or nil),
+                onClick = function() DoTutoring(tutorFee) end,
             })
         end
 
-        -- ────────────────────────────────────────
-        -- 第二段：赞助商合作（Day5+ 解锁，叙事包装广告）
-        -- ────────────────────────────────────────
-        if ProgressiveUnlock.IsUnlocked("panel_sponsor") then
-            table.insert(cardChildren, SectionTitle("🤝", "赞助商合作"))
+        -- 3️⃣ 学一招（合并：听广播+市场调研 → 随机学技能/获buff）
+        local learnDone = playerData_.learnedSkillToday
+        table.insert(restBtns, GridBtn {
+            title = "📖 学一招", price = learnDone and "今日已学" or "AP1",
+            reward = learnDone and "—" or "随机：维修↑/经营↑/社交↑/明日折扣",
+            disabled = noAP or learnDone,
+            reason = learnDone and "每天限一次" or nil,
+            onClick = function() DoLearnSkill() end,
+        })
 
-            local sponsorBtns = {}
-
-            -- 帮贴海报 → 额外AP（原 extra_ap 广告）
-            if noAP and AdManager.CanWatch("extra_ap", playerData_.day) then
-                table.insert(sponsorBtns, AdManager.AdButton {
-                    sceneId = "extra_ap", day = playerData_.day,
-                    text = "🪧 帮贴海报 → 精力恢复+1AP",
-                    height = 40, fontSize = 13,
-                    onReward = function()
-                        playerData_.actionPoints = playerData_.actionPoints + 1
-                        AddLog("🤝 帮赞助商贴了广告海报，对方请你喝了杯咖啡，精力恢复！AP+1")
-                        BuildUI()
-                    end,
-                })
-            end
-
-            -- 代售体验 → 翻倍收入（原 double_income 广告）
-            if adDoubleIncome then
-                table.insert(sponsorBtns, adDoubleIncome)
-            end
-
-            -- Day 10+: 品牌活动日赞助（sponsor_gift 广告位）
-            if (playerData_.day or 1) >= 10 and AdManager.CanWatch("sponsor_gift", playerData_.day) then
-                local giftBonus = 30 + math.floor((playerData_.day or 1) * 3)
-                table.insert(sponsorBtns, AdManager.AdButton {
-                    sceneId = "sponsor_gift", day = playerData_.day,
-                    text = "🎁 品牌赞助活动 → +$" .. giftBonus .. " +声望10",
-                    height = 40, fontSize = 13,
-                    onReward = function()
-                        playerData_.money = (playerData_.money or 0) + giftBonus
-                        playerData_.totalEarnings = (playerData_.totalEarnings or 0) + giftBonus
-                        playerData_.reputation = (playerData_.reputation or 0) + 10
-                        AddLog("🎁 赞助商在你店里办了个小活动，给了赞助费$" .. giftBonus .. "，还带来不少人气！声望+10")
-                        BuildUI()
-                    end,
-                })
-            end
-
-            if #sponsorBtns > 0 then
-                table.insert(cardChildren, UI.Panel {
-                    width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                    children = sponsorBtns,
-                })
-            else
-                table.insert(cardChildren, UI.Label {
-                    text = "今日赞助商暂无合作需求，明天再看看",
-                    fontSize = 11, fontColor = { 140, 130, 110, 200 },
-                    width = "100%", textAlign = "center",
-                    marginTop = 4, marginBottom = 4,
-                })
-            end
-        end
-
-        -- ────────────────────────────────────────
-        -- 第三段：学习充电（听广播学技术/今天早歇/市场调研）
-        -- ────────────────────────────────────────
-        local restSubQ = TabSubQuests.GetRestActions()
-        if #restSubQ > 0 then
-            table.insert(cardChildren, SectionTitle("📖", "学习充电"))
-            local rstBtns = {}
-            for _, a in ipairs(restSubQ) do table.insert(rstBtns, GridBtn(a)) end
+        if #restBtns > 0 then
             table.insert(cardChildren, UI.Panel {
                 width = "100%", flexDirection = "row", flexWrap = "wrap", gap = 6,
-                children = rstBtns,
+                children = restBtns,
+            })
+        end
+
+        -- 🎬 赞助广告：纪录片拍摄（现金+声望）
+        if AdManager.CanWatch("rest_filmmaker", playerData_.day) then
+            table.insert(cardChildren, SectionTitle("🎬", "赞助合作"))
+            local filmBonus = 50 + math.floor((playerData_.day or 1) * 4)
+            table.insert(cardChildren, AdManager.AdButton {
+                sceneId = "rest_filmmaker", day = playerData_.day,
+                text = "🎬 纪录片拍摄 → +$" .. filmBonus .. " +声望15",
+                height = 40, fontSize = 13,
+                onReward = function()
+                    playerData_.money = (playerData_.money or 0) + filmBonus
+                    playerData_.totalEarnings = (playerData_.totalEarnings or 0) + filmBonus
+                    playerData_.reputation = (playerData_.reputation or 0) + 15
+                    AddLog("🎬 有个纪录片团队想拍你的创业故事，给了拍摄费$" .. filmBonus .. "，还帮你宣传了一波！声望+15")
+                    BuildUI()
+                end,
             })
         end
     end

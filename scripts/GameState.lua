@@ -341,26 +341,34 @@ function PanelHeader(title, opts)
     local padV = compact and 6 or 9
     local padH = compact and 10 or 14
 
+    -- 像素风：左侧粗色块标记
+    local markerColor = { math.min(255, bgColor[1] + 50), math.min(255, bgColor[2] + 40), math.min(255, bgColor[3] + 30), 255 }
+
+    local innerChildren = {
+        -- 像素色块标记 ▎
+        UI.Panel { width = 4, height = fontSize + 4, backgroundColor = markerColor, borderRadius = 0 },
+        opts.icon and UI.Label { text = opts.icon, fontSize = fontSize + 1 } or nil,
+        UI.Label {
+            text = title, fontSize = fontSize,
+            fontColor = { 255, 255, 255, 255 }, fontWeight = "bold",
+            flexShrink = 1,
+        },
+    }
+
     local children = {
         UI.Panel {
             flexDirection = "row", alignItems = "center", gap = 6, flexShrink = 1,
-            children = {
-                opts.icon and UI.Label { text = opts.icon, fontSize = fontSize + 1 } or nil,
-                UI.Label {
-                    text = title, fontSize = fontSize,
-                    fontColor = { 255, 255, 255, 255 }, fontWeight = "bold",
-                    flexShrink = 1,
-                },
-            },
+            children = innerChildren,
         },
     }
-    -- 右侧：关闭按钮（白色半透明）
+    -- 右侧：关闭按钮（像素方块风格）
     if opts.onClose then
         children[#children + 1] = UI.Button {
             text = "✕", width = 26, height = 26,
-            fontSize = 13, borderRadius = 13,
+            fontSize = 13, borderRadius = PX.radiusSm,
             backgroundColor = { 255, 255, 255, 50 },
             fontColor = { 255, 255, 255, 220 },
+            borderWidth = PX.borderSm, borderColor = { 255, 255, 255, 80 },
             onClick = function(self)
                 PlaySFX("click")
                 opts.onClose()
@@ -368,12 +376,23 @@ function PanelHeader(title, opts)
         }
     end
 
+    -- 底部深色描边（像素风硬阴影）
+    local shadowColor = { math.max(0, bgColor[1] - 40), math.max(0, bgColor[2] - 30), math.max(0, bgColor[3] - 20), 255 }
+
     return UI.Panel {
-        width = "100%", flexDirection = "row",
-        justifyContent = "space-between", alignItems = "center",
-        paddingHorizontal = padH, paddingVertical = padV,
-        backgroundColor = bgColor,
-        children = children,
+        width = "100%",
+        children = {
+            UI.Panel {
+                width = "100%", flexDirection = "row",
+                justifyContent = "space-between", alignItems = "center",
+                paddingHorizontal = padH, paddingVertical = padV,
+                backgroundColor = bgColor, borderRadius = PX.radiusSm,
+                borderWidth = PX.borderSm, borderColor = shadowColor,
+                children = children,
+            },
+            -- 像素风底部硬阴影线
+            UI.Panel { width = "100%", height = 2, backgroundColor = shadowColor },
+        },
     }
 end
 
@@ -387,6 +406,84 @@ function InfoRow(label, value, color)
             UI.Label { text = label, fontSize = 12, fontColor = C.textDim },
             UI.Label { text = tostring(value), fontSize = 12,
                 fontColor = color or C.text, fontWeight = "bold" },
+        },
+    }
+end
+
+--- 像素风进度条（方块锯齿风格，去圆角+粗边框+分段感）
+---@param ratio number 0~1 进度比例
+---@param opts table|nil { height, barColor, bgColor, width, showText, label }
+function PixelBar(ratio, opts)
+    opts = opts or {}
+    ratio = math.max(0, math.min(1, ratio or 0))
+    local h = opts.height or 8
+    local barColor = opts.barColor or C.green
+    local bgColor = opts.bgColor or { 30, 25, 20, 200 }
+    local borderColor = { barColor[1] - 40, barColor[2] - 30, barColor[3] - 20, 220 }
+    -- 像素高亮（顶部亮线模拟）
+    local hiColor = { math.min(255, barColor[1] + 60), math.min(255, barColor[2] + 50), math.min(255, barColor[3] + 40), 180 }
+
+    local barChildren = {
+        -- 填充条
+        UI.Panel {
+            width = math.floor(ratio * 100) .. "%", height = "100%",
+            backgroundColor = barColor, borderRadius = 0,
+            children = {
+                -- 顶部像素高亮线
+                UI.Panel { width = "100%", height = 2, backgroundColor = hiColor },
+            },
+        },
+    }
+
+    local wrapper = {
+        UI.Panel {
+            width = opts.width or "100%", height = h,
+            backgroundColor = bgColor, borderRadius = 0,
+            borderWidth = PX.borderSm, borderColor = borderColor,
+            overflow = "hidden",
+            children = barChildren,
+        },
+    }
+
+    -- 可选文字标签
+    if opts.showText then
+        table.insert(wrapper, 1, UI.Label {
+            text = opts.label or (math.floor(ratio * 100) .. "%"),
+            fontSize = 10, fontColor = C.textDim,
+        })
+        return UI.Panel {
+            width = opts.width or "100%", flexDirection = "row",
+            alignItems = "center", gap = 4,
+            children = wrapper,
+        }
+    end
+
+    return wrapper[1]
+end
+
+--- 像素风等级/成就徽章
+---@param text string 徽章文字（如等级数字、星级）
+---@param opts table|nil { color, size, icon }
+function PixelBadge(text, opts)
+    opts = opts or {}
+    local size = opts.size or 22
+    local color = opts.color or C.gold
+    local darkColor = { math.max(0, color[1] - 60), math.max(0, color[2] - 50), math.max(0, color[3] - 40), 255 }
+    return UI.Panel {
+        width = size, height = size, borderRadius = PX.radiusSm,
+        backgroundColor = color,
+        borderWidth = PX.border, borderColor = darkColor,
+        justifyContent = "center", alignItems = "center",
+        children = {
+            -- 顶部高亮（像素立体感）
+            UI.Panel {
+                position = "absolute", top = 0, left = 2, right = 2, height = 2,
+                backgroundColor = { 255, 255, 255, 80 }, borderRadius = 0,
+            },
+            UI.Label {
+                text = (opts.icon or "") .. tostring(text),
+                fontSize = size * 0.5, fontColor = { 30, 20, 10, 255 }, fontWeight = "bold",
+            },
         },
     }
 end

@@ -274,17 +274,8 @@ function BuildStatusBar()
                                 fontSize = 10, fontColor = { 220, 190, 100, 220 }, flex = 1 },
                             UI.Label { text = cityLabel, fontSize = 10, fontColor = { 180, 160, 120, 200 }, flexShrink = 0 },
                         }},
-                        -- 进度条
-                        UI.Panel {
-                            width = "100%", height = 5, backgroundColor = { 60, 40, 20, 120 }, borderRadius = 3,
-                            children = {
-                                UI.Panel {
-                                    width = barW .. "%", height = "100%",
-                                    backgroundColor = pctP >= 1.0 and { 100, 220, 100, 220 } or { 220, 180, 60, 200 },
-                                    borderRadius = 3,
-                                },
-                            },
-                        },
+                        -- 像素风进度条
+                        PixelBar(pctP, { height = 5, barColor = pctP >= 1.0 and { 100, 220, 100, 220 } or { 220, 180, 60, 200 } }),
                     },
                 })
             elseif not nextInfo then

@@ -1289,6 +1289,10 @@ function DoPostFlyers()
     local rep = math.random(8, 20)
     playerData_.reputation = playerData_.reputation + rep
     CafeAnimEvents.Push("post_flyers")
+    -- Day1 首次贴传单完成主线标记
+    if (playerData_.day or 1) == 1 and not playerData_.day1FlyerDone then
+        playerData_.day1FlyerDone = true
+    end
     -- P1-1: D1-D3 不触发随机招募，保护新手节奏
     if (playerData_.day or 1) >= 4 and math.random() < 0.3 and #CANDIDATE_POOL > 0 and #teamMembers_ < 5 then
         AddLog("📢 传单引来高手！声望+" .. rep)
@@ -1300,7 +1304,26 @@ function DoPostFlyers()
         AddLog("📋 贴传单完成！花费$" .. flyerCost .. " | 声望+" .. rep .. " | AP-1")
     end
 
-    -- 多种丰富叙事
+    -- === 队员故事系统（55%触发率，有队员时优先） ===
+    if #teamMembers_ > 0 and math.random() < 0.55 then
+        local story = BuildMemberFlyerStory()
+        if story then
+            AddLog("📢 " .. story.title .. " — 声望+" .. rep)
+            eventResult_ = {
+                success = true,
+                icon = story.icon,
+                title = "📢 贴传单 · " .. story.title,
+                narrative = story.narrative,
+                effects = "⭐ 声望+" .. rep,
+                logText = "📢 " .. story.title .. " — 声望+" .. rep,
+            }
+            currentPhase_ = PHASE_EVENT
+            BuildUI()
+            return
+        end
+    end
+
+    -- === 通用传单故事（无队员 / 队员故事未触发时） ===
     local FLYER_STORIES = {
         {
             icon = "🧒",
@@ -1351,7 +1374,26 @@ function DoPostFlyers()
         },
     }
 
-    local story = FLYER_STORIES[math.random(1, #FLYER_STORIES)]
+    -- 通用故事去重（用 recentFlyerBaseIds 桶）
+    if not playerData_.recentFlyerBaseIds then playerData_.recentFlyerBaseIds = {} end
+    local available = {}
+    for i, s in ipairs(FLYER_STORIES) do
+        local used = false
+        for _, rid in ipairs(playerData_.recentFlyerBaseIds) do
+            if rid == i then used = true; break end
+        end
+        if not used then table.insert(available, { idx = i, story = s }) end
+    end
+    if #available == 0 then
+        playerData_.recentFlyerBaseIds = {}
+        available = {}
+        for i, s in ipairs(FLYER_STORIES) do table.insert(available, { idx = i, story = s }) end
+    end
+    local pick = available[math.random(1, #available)]
+    table.insert(playerData_.recentFlyerBaseIds, pick.idx)
+    if #playerData_.recentFlyerBaseIds > 4 then table.remove(playerData_.recentFlyerBaseIds, 1) end
+
+    local story = pick.story
     eventResult_ = {
         success = true,
         icon = story.icon,
@@ -1362,6 +1404,66 @@ function DoPostFlyers()
     }
     currentPhase_ = PHASE_EVENT
     BuildUI()
+end
+
+--- 📢 队员贴传单故事构建器（双桶去重，8个模板 × 队员组合）
+function BuildMemberFlyerStory()
+    -- 8个队员故事模板，{name} 和 {emoji} 运行时替换
+    local MEMBER_FLYER_TEMPLATES = {
+        { id = 1, icon = "{emoji}", title = "{name}的宣传攻势",
+          narrative = "{name}主动说「老板，今天我来帮你贴！」\n\n结果这家伙不走寻常路——站在路口举着传单大喊：\n「Dragon Net Cafe！来了就是兄弟！不来就是……也是兄弟！但你会后悔！」\n\n路人被逗乐了，还真有几个跟着来了。" },
+        { id = 2, icon = "{emoji}", title = "{name}的人脉圈",
+          narrative = "你发现{name}贴传单时认识的人出奇地多。\n\n走几步就有人打招呼：「嘿{name}！这是你老板的店？」\n{name}拍着胸脯：「当然！非洲最强战队Dragon Force的大本营！」\n\n比你自己贴十天效果都好。" },
+        { id = 3, icon = "{emoji}", title = "{name}被搭讪",
+          narrative = "贴传单路上，有个穿西装的人拦住{name}：\n「你们队在招人吗？我弟弟天天看你们打比赛的视频——」\n\n{name}一脸傲娇：「Dragon Force不是谁都能进的。让他先来试试。」\n\n你在旁边偷笑——这小子，飘了。" },
+        { id = 4, icon = "{emoji}", title = "{name}的即兴表演",
+          narrative = "{name}拿起传单贴了两张就坐不住了。\n\n掏出手机放了段比赛录像，在街边给路人现场解说：\n「看到没！这个走位！这是我做的！三杀！」\n\n围了一圈人看，比传单有用多了。" },
+        { id = 5, icon = "{emoji}", title = "{name}和小粉丝",
+          narrative = "有个小孩跑过来拉{name}的衣角：\n「你是Dragon Force的吗？我在视频里见过你！」\n\n{name}蹲下来签了个名（虽然签在传单背面），那小孩宝贝似地收起来。\n\n你看着这一幕，突然觉得一切努力都值了。" },
+        { id = 6, icon = "{emoji}", title = "{name}翘班贴传单",
+          narrative = "{name}今天本来该训练，但非要跟你出来贴传单。\n\n「训练明天补嘛！我想看看外面的人怎么说我们！」\n\n你俩并肩走在街上，一边贴一边聊战术。\n难得的轻松时光。" },
+        { id = 7, icon = "{emoji}", title = "{name}的口碑效应",
+          narrative = "你还没开始贴，就有个摊贩主动过来：\n「你是{name}的老板吧？他上次帮我搬东西，人真好！」\n\n「你们的传单给我几张，我贴在我摊位上。」\n\n看来{name}平时积累的好人缘，正在变成无形资产。" },
+        { id = 8, icon = "{emoji}", title = "{name}的反向营销",
+          narrative = "{name}别出心裁，在传单背面写了句话：\n「如果你能在跑刀赛里活过{name}三分钟，免费上网一小时！」\n\n第二天来了五个人挑战，全军覆没——但都充了钱继续玩。\n{name}得意地冲你竖大拇指。" },
+    }
+
+    -- 双桶去重：recentFlyerMemberIds 记录最近用过的模板ID
+    if not playerData_.recentFlyerMemberIds then playerData_.recentFlyerMemberIds = {} end
+
+    -- 过滤出未使用的模板
+    local available = {}
+    for _, t in ipairs(MEMBER_FLYER_TEMPLATES) do
+        local used = false
+        for _, rid in ipairs(playerData_.recentFlyerMemberIds) do
+            if rid == t.id then used = true; break end
+        end
+        if not used then table.insert(available, t) end
+    end
+    -- 所有模板用完 → 清空重来
+    if #available == 0 then
+        playerData_.recentFlyerMemberIds = {}
+        available = MEMBER_FLYER_TEMPLATES
+    end
+
+    -- 随机选一个模板和一个队员
+    local template = available[math.random(1, #available)]
+    local member = teamMembers_[math.random(1, #teamMembers_)]
+
+    -- 记录已用模板
+    table.insert(playerData_.recentFlyerMemberIds, template.id)
+    if #playerData_.recentFlyerMemberIds > 6 then table.remove(playerData_.recentFlyerMemberIds, 1) end
+
+    -- 替换占位符
+    local function fillTemplate(str)
+        return str:gsub("{name}", member.name):gsub("{emoji}", member.emoji or "🧑🏿")
+    end
+
+    return {
+        icon = fillTemplate(template.icon),
+        title = fillTemplate(template.title),
+        narrative = fillTemplate(template.narrative),
+    }
 end
 
 --- 向 Mama B 借钱（经济缓冲，防止死亡螺旋）
@@ -1424,6 +1526,7 @@ end
 --- 二手设备淘宝市场
 function DoSecondHandMarket()
     if not UseActionPoint(1) then return end
+    PlayBGM("market")
     PlaySFX("event")
     CafeAnimEvents.Push("second_hand")
     -- 随机生成2-3个二手商品
@@ -1526,6 +1629,7 @@ function DoSecondHandMarket()
         result = "明智的选择……或者说怂了？",
         effect = function()
             AddLog("📦 逛了一圈二手市场，什么都没买")
+            PlayBGM("manage")
             BuildUI()
         end,
     })
@@ -2374,6 +2478,7 @@ function StartCafeChallenge(npcData)
     challengePlayerWins_ = 0
     challengeNPCWins_ = 0
     challengePhase_ = "select_wager"
+    PlayBGM("challenge")
 
     -- 计算难度：基于双方网吧分数比
     local playerScore = CalcCafeScore()
@@ -2637,4 +2742,332 @@ function AddLog(text)
         diaryEntries_[day] = { atmo = "", logs = {} }
     end
     table.insert(diaryEntries_[day].logs, text)
+end
+
+-- ═══════════════════════════════════════════════════
+-- 精简Tab合并行动函数
+-- ═══════════════════════════════════════════════════
+
+--- 🤝 社区活动（街区Tab：合并请吃烤肉+社区互助+声望消耗）
+function DoCommunityEvent()
+    if not UseActionPoint(1) then return end
+    playerData_.communityEventToday = true
+    CafeAnimEvents.Push("community")
+
+    -- 随机场景（含叙事段落）
+    local scenes = {
+        { icon = "📦", title = "帮忙搬家", rep = 12, money = 0,
+          narrative = "隔壁Uncle Charles要搬新家具，你过去帮了一把。\n\n三个人抬着一张巨大的木床爬楼梯，差点卡在拐角。\n\n「中国老板力气大！」他硬塞给你几瓶Fanta。" },
+        { icon = "📚", title = "临时教室", rep = 20, money = 0,
+          narrative = "附近学校又停电了，十几个学生背着书包站在路边发愁。\n\n你把网吧后面几台电脑让出来：「来吧，在这写作业。」\n\n家长们晚上来接孩子，专门买了一箱芬达放在前台。" },
+        { icon = "🍖", title = "街区烧烤", rep = 15, money = -30,
+          narrative = "你从Mama Blessing那买了一堆Suya串，在网吧门口支起炭火。\n\n半条街的人都凑过来了。Big Joe边吃边喊：\n「Dragon老板请客！以后我罩着你！」\n\n花了点钱，但整条街都记住了你。" },
+        { icon = "🏪", title = "帮人看摊", rep = 8, money = 25,
+          narrative = "小贩Kofi说要去医院看老婆，求你帮看半天摊。\n\n你坐在太阳底下卖了半天充电线和手机壳。\n\n他回来时塞给你一些转卖的小玩意：「够意思，兄弟！」" },
+        { icon = "🤝", title = "调解纠纷", rep = 18, money = 0,
+          narrative = "两家邻居因为排水沟的事吵了三天。你主动过去当和事佬。\n\n一番劝说后，双方握手言和，还各请你喝了杯冰水。\n\n「中国人会做生意，也会做人。」你听到有人背后这么说。" },
+        { icon = "🧹", title = "社区清洁日", rep = 10, money = 0,
+          narrative = "今天是社区卫生日，你拿了把扫帚主动打扫门口一条街。\n\n路过的人纷纷竖大拇指。有个大叔停下摩托：\n「老板，你这样的人开店不火才怪！」" },
+    }
+    local scene = scenes[math.random(1, #scenes)]
+    local repGain = scene.rep + math.random(0, 5)
+    playerData_.reputation = (playerData_.reputation or 0) + repGain
+    if scene.money ~= 0 then
+        playerData_.money = (playerData_.money or 0) + scene.money
+        if scene.money > 0 then
+            playerData_.totalEarnings = (playerData_.totalEarnings or 0) + scene.money
+        end
+    end
+
+    -- 20%概率触发情报支线（嵌入叙事末句）
+    local intelText = ""
+    if math.random() < 0.2 then
+        playerData_.storedIntel = "rumor_tip"
+        intelText = "\n\n💬 临走时有人拉住你悄悄说：「明天集市有批好货要出，你留意一下。」"
+    end
+
+    local effectStr = "⭐ 声望+" .. repGain
+    if scene.money > 0 then effectStr = effectStr .. " · 💰+$" .. scene.money end
+    if scene.money < 0 then effectStr = effectStr .. " · 💰-$" .. math.abs(scene.money) end
+
+    eventResult_ = {
+        success = true,
+        icon = scene.icon,
+        title = "🤝 社区活动 · " .. scene.title,
+        narrative = scene.narrative .. intelText,
+        effects = effectStr,
+        logText = "🤝 " .. scene.title .. " — 声望+" .. repGain,
+    }
+    currentPhase_ = PHASE_EVENT
+    BuildUI()
+end
+
+--- 🏗️ 地盘经营（街区Tab Day12+：花钱换3天被动收入+声望）
+function DoTerritoryManage()
+    if not UseActionPoint(1) then return end
+    if (playerData_.money or 0) < 100 then return end
+    playerData_.money = playerData_.money - 100
+    playerData_.territoryManagedToday = true
+    pcall(MFX_MoneyPop, -100)
+
+    playerData_.reputation = (playerData_.reputation or 0) + 15
+    -- 设置3天被动收入
+    playerData_.territoryIncomeDays = 3
+    playerData_.territoryIncomePerDay = 40 + math.floor((playerData_.day or 1) * 2)
+
+    local scenarios = {
+        "你请Big Joe喝了杯啤酒，聊了聊街区的事。他拍着胸脯说以后这片有事找他。",
+        "你给街区几个小摊贩送了充电宝，他们答应帮你看场子、带客人。",
+        "你花钱请人把网吧门口的路修了修，整条街的人都说你够意思。",
+        "你赞助了街区足球队的比赛用水，队员们说以后来上网打折。",
+    }
+    local desc = scenarios[math.random(1, #scenarios)]
+    AddLog("🏗️ " .. desc .. " 声望+15，接下来3天每天+$" .. playerData_.territoryIncomePerDay)
+
+    ShowActionResult({
+        icon = "🏗️",
+        title = "地盘打点完成",
+        desc = desc,
+        effects = {
+            "⭐ 声望 +15",
+            "💰 接下来3天每天 +$" .. playerData_.territoryIncomePerDay,
+            "💸 花费 $100",
+        },
+    })
+end
+
+--- 🎲 冒险生意（投资Tab：合并二手淘宝+接包场+信息差套利）
+function DoRiskyBusiness(investment)
+    if not UseActionPoint(1) then return end
+    if (playerData_.money or 0) < investment then return end
+    PlayBGM("invest")
+    playerData_.money = playerData_.money - investment
+    playerData_.riskyBizToday = true
+    pcall(MFX_MoneyPop, -investment)
+
+    -- 成功率基础50%，有情报加成+20%，有tradeBoost+50%
+    local successRate = 50
+    if playerData_.storedIntel then successRate = successRate + 20; playerData_.storedIntel = nil end
+    if playerData_.tradeBoostNext then successRate = successRate + 50; playerData_.tradeBoostNext = nil end
+    successRate = math.min(95, successRate)
+
+    local roll = math.random(1, 100)
+    if roll <= successRate then
+        -- 成功：1.5x ~ 3x 回报
+        local multi = 1.5 + math.random() * 1.5
+        local profit = math.floor(investment * multi)
+        playerData_.money = playerData_.money + profit
+        playerData_.totalEarnings = (playerData_.totalEarnings or 0) + (profit - investment)
+        pcall(MFX_MoneyPop, profit)
+        local scenes = {
+            { icon = "🖥️", title = "淘到好货",
+              narrative = "你在二手市场翻了半天，终于在角落发现一批旧显卡。\n\n卖家是个急着回乡的矿老板，开价很低。你假装犹豫了一下，其实心里已经乐开了花。\n\n转手挂到Facebook Marketplace，当天就有人来收——利润翻倍。" },
+            { icon = "🎉", title = "包场大单",
+              narrative = "有个NGO组织找上门，要包场搞团建活动。\n\n你临时把网吧布置了一下，还准备了饮料和零食。活动结束后对方负责人握着你的手说：\n\n「太专业了！下次还找你！」说完多塞了一笔小费。" },
+            { icon = "📊", title = "信息差套利",
+              narrative = "上次社区活动听来的消息果然靠谱——一批二手路由器在港口清关价很低。\n\n你提前预定了一批，转天价格就涨回去了。\n买进卖出，干净利落。做生意的感觉，真好。" },
+            { icon = "🔌", title = "代购赚差价",
+              narrative = "一个网吧老板托你帮忙从中国代购电源线和网线。\n\n你联系了国内的老同学，整了两大箱发过来。成本价卖给同行，中间的差价就是纯利润。\n\n「中国人做生意就是靠谱！」老板竖起大拇指。" },
+        }
+        local scene = scenes[math.random(1, #scenes)]
+        local netProfit = profit - investment
+        AddLog("🎲 " .. scene.title .. " — 投入$" .. investment .. " → 净赚$" .. netProfit .. "！")
+
+        eventResult_ = {
+            success = true,
+            icon = scene.icon,
+            title = "🎲 冒险生意 · " .. scene.title,
+            narrative = scene.narrative,
+            effects = "💰 投入$" .. investment .. " → 收回$" .. profit .. "（净赚$" .. netProfit .. "）",
+            logText = "🎲 " .. scene.title .. " — 净赚$" .. netProfit,
+        }
+    else
+        -- 失败：血本无归
+        local scenes = {
+            { icon = "💔", title = "翻新陷阱",
+              narrative = "你兴冲冲从二手市场扛回一堆「九成新」显卡。\n\n回来拆开一看——全是矿卡翻新的，芯片都烧焦了。找卖家？人早跑了。\n\n你坐在一堆电子垃圾中间，沉默了很久。" },
+            { icon = "💔", title = "爽约客户",
+              narrative = "说好的包场活动，你提前准备了一整天——\n布置场地、备好饮料、还特意擦了所有屏幕。\n\n结果客户一条短信：「不好意思，取消了。」\n连定金都没给。你看着空荡荡的网吧，长叹一口气。" },
+            { icon = "💔", title = "过期情报",
+              narrative = "那条「内部消息」看来已经过时了。\n\n你买入的那批货，市场价第二天就崩了。想转手都没人要。\n\n教训：在这里，消息的保质期比酸奶还短。" },
+            { icon = "💔", title = "中间商跑路",
+              narrative = "你把钱打给了中间人，约好三天后交货。\n\n三天后电话打不通。五天后有人告诉你：\n「那个Ade啊？他上周就坐大巴回老家了。」\n\n又交了一笔学费。" },
+        }
+        local scene = scenes[math.random(1, #scenes)]
+        AddLog("🎲 " .. scene.title .. " — 亏了$" .. investment .. "！")
+
+        eventResult_ = {
+            success = false,
+            icon = scene.icon,
+            title = "🎲 冒险生意 · " .. scene.title,
+            narrative = scene.narrative,
+            effects = "💸 血本无归，亏损 $" .. investment,
+            logText = "🎲 " .. scene.title .. " — 亏了$" .. investment,
+        }
+    end
+    currentPhase_ = PHASE_EVENT
+    BuildUI()
+end
+
+--- 📈 大额投资（投资Tab Day12+：投入资金，3天后结算）
+function DoBigInvestment(minAmount)
+    if not UseActionPoint(1) then return end
+    if (playerData_.money or 0) < minAmount then return end
+    PlayBGM("invest")
+    -- 投入全部可用资金的50%~80%，至少 minAmount
+    local investAmount = math.max(minAmount, math.floor((playerData_.money or 0) * (0.5 + math.random() * 0.3)))
+    investAmount = math.min(investAmount, playerData_.money)  -- 不超过余额
+
+    playerData_.money = playerData_.money - investAmount
+    pcall(MFX_MoneyPop, -investAmount)
+    playerData_.partnerInvestment = {
+        amount = investAmount,
+        returnDay = (playerData_.day or 1) + 3,
+        successRate = playerData_.tradeBoostNext and 70 or 55,
+    }
+    if playerData_.tradeBoostNext then playerData_.tradeBoostNext = nil end
+
+    local returnDay = playerData_.partnerInvestment.returnDay
+    AddLog("📈 你投入了$" .. investAmount .. "做大额投资，第" .. returnDay .. "天结算。")
+
+    ShowActionResult({
+        icon = "📈",
+        title = "大额投资已托付",
+        desc = "合伙人拍着胸脯说「信我，稳赚不赔」……\n你把$" .. investAmount .. "交到他手上，心里默念：但愿如此。",
+        effects = {
+            "💸 投入 $" .. investAmount,
+            "📅 第" .. returnDay .. "天结算",
+            "🎯 成功率 " .. playerData_.partnerInvestment.successRate .. "%",
+        },
+        color = { 180, 160, 255, 255 },  -- 紫色调表示等待
+    })
+end
+
+--- 🔧 打零工（副业Tab：合并修手机+摆摊+代收快递）
+function DoOddJob(basePay)
+    if not UseActionPoint(1) then return end
+    playerData_.oddJobToday = true
+    CafeAnimEvents.Push("odd_job")
+
+    -- 随机打工场景
+    local jobs = {
+        { text = "帮邻居修了个路由器", pay = 1.0 },
+        { text = "在网吧门口摆摊卖了些二手光盘", pay = 0.9 },
+        { text = "帮快递站分拣了一下午包裹", pay = 1.2 },
+        { text = "给隔壁餐厅装了个收银系统", pay = 1.4 },
+        { text = "帮人安装了几台电脑系统", pay = 1.1 },
+        { text = "代收了一堆快递，顺便赚了小费", pay = 0.8 },
+    }
+    local job = jobs[math.random(1, #jobs)]
+    local finalPay = math.floor(basePay * job.pay)
+    playerData_.money = (playerData_.money or 0) + finalPay
+    playerData_.totalEarnings = (playerData_.totalEarnings or 0) + finalPay
+    pcall(MFX_MoneyPop, finalPay)
+
+    AddLog("🔧 " .. job.text .. "，赚了$" .. finalPay)
+    -- 小概率声望+5
+    local repGain = 0
+    if math.random() < 0.3 then
+        repGain = 5
+        playerData_.reputation = (playerData_.reputation or 0) + repGain
+        AddLog("   邻居夸你手艺好，口碑传开了。声望+5")
+    end
+
+    -- 结果弹窗
+    local effects = { "💰 收入 +$" .. finalPay }
+    if repGain > 0 then table.insert(effects, "⭐ 声望 +" .. repGain) end
+    ShowActionResult({
+        icon = "🔧",
+        title = "打零工完成",
+        desc = job.text,
+        effects = effects,
+    })
+end
+
+--- 🎓 辅导补习（副业Tab Day12+：高收益，消耗2AP）
+function DoTutoring(fee)
+    if not UseActionPoint(2) then return end
+    playerData_.tutorDoneToday = true
+    CafeAnimEvents.Push("tutoring")
+
+    playerData_.money = (playerData_.money or 0) + fee
+    playerData_.totalEarnings = (playerData_.totalEarnings or 0) + fee
+    playerData_.reputation = (playerData_.reputation or 0) + 8
+    pcall(MFX_MoneyPop, fee)
+
+    local subjects = {
+        { name = "电脑基础", desc = "教几个大叔大婶开机关机、打开浏览器。他们学会发WhatsApp消息后激动得不行。" },
+        { name = "打字练习", desc = "三个学生跟你学打字。最小的那个用两根食指戳，居然比另外俩还快。" },
+        { name = "互联网入门", desc = "几个年轻人想学怎么在网上做小生意。你把淘宝、拼多多的模式给他们讲了讲。" },
+        { name = "办公软件", desc = "教一个小商人用Excel记账。他说之前全靠脑子记，经常算错。" },
+        { name = "基础编程", desc = "有个聪明小孩想学编程。你教他写了个「Hello World」，他兴奋得跳起来。" },
+    }
+    local sub = subjects[math.random(1, #subjects)]
+    AddLog("🎓 教了几个学生【" .. sub.name .. "】，收了$" .. fee .. "学费。声望+8")
+
+    ShowActionResult({
+        icon = "🎓",
+        title = "辅导补习完成",
+        desc = sub.desc,
+        effects = {
+            "💰 学费收入 +$" .. fee,
+            "⭐ 声望 +8",
+        },
+        color = { 160, 220, 255, 255 },  -- 蓝色调
+    })
+end
+
+--- 📖 学一招（副业Tab：合并听广播+市场调研 → 随机buff）
+function DoLearnSkill()
+    if not UseActionPoint(1) then return end
+    playerData_.learnedSkillToday = true
+
+    -- 随机学到的技能/buff
+    local skills = {
+        { text = "从广播里学到了一个维修小技巧", effect = "repair", value = 3 },
+        { text = "看了段经营管理的教学视频", effect = "manage", value = 2 },
+        { text = "跟老主顾聊了会社交技巧", effect = "social", value = 3 },
+        { text = "研究了一下明天的市场行情", effect = "discount", value = 15 },
+        { text = "学会了一种新的电脑故障排查法", effect = "repair", value = 5 },
+        { text = "琢磨出一个省电省钱的小窍门", effect = "save", value = 20 },
+    }
+    local skill = skills[math.random(1, #skills)]
+
+    local effectText = ""
+    if skill.effect == "repair" then
+        -- 提升维修成功率（影响修手机收益）
+        playerData_.repairBonus = (playerData_.repairBonus or 0) + skill.value
+        effectText = "🔧 维修技术永久 +" .. skill.value
+        AddLog("📖 " .. skill.text .. "。维修技术永久+" .. skill.value)
+    elseif skill.effect == "manage" then
+        -- 提升经营效率（影响日收入）
+        playerData_.manageBonus = (playerData_.manageBonus or 0) + skill.value
+        effectText = "📊 经营能力永久 +" .. skill.value
+        AddLog("📖 " .. skill.text .. "。经营能力永久+" .. skill.value)
+    elseif skill.effect == "social" then
+        -- 直接加声望
+        playerData_.reputation = (playerData_.reputation or 0) + skill.value * 3
+        effectText = "⭐ 声望 +" .. (skill.value * 3)
+        AddLog("📖 " .. skill.text .. "。声望+" .. (skill.value * 3))
+    elseif skill.effect == "discount" then
+        -- 明日购物折扣
+        playerData_.tomorrowDiscount = skill.value
+        effectText = "🏷️ 明日购物/升级享 " .. skill.value .. "% 折扣"
+        AddLog("📖 " .. skill.text .. "。明天购物/升级享" .. skill.value .. "%折扣！")
+    elseif skill.effect == "save" then
+        -- 直接省钱（加现金）
+        playerData_.money = (playerData_.money or 0) + skill.value
+        playerData_.totalEarnings = (playerData_.totalEarnings or 0) + skill.value
+        effectText = "💰 省下了 $" .. skill.value
+        AddLog("📖 " .. skill.text .. "。省下了$" .. skill.value)
+    end
+
+    -- 结果弹窗
+    ShowActionResult({
+        icon = "📖",
+        title = "学到新技能",
+        desc = skill.text,
+        effects = { effectText },
+        color = { 160, 220, 255, 255 },  -- 蓝色调区分学习
+    })
 end

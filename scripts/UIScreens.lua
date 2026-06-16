@@ -158,10 +158,15 @@ function BuildUI()
             local feedbackPopup = BuildUpgradeFeedbackPopup and BuildUpgradeFeedbackPopup() or nil
             if feedbackPopup then table.insert(overlays, feedbackPopup) end
         end
-        -- P0-2 征途小结弹窗（第1天结算后）
+        -- P0-2 征途小结弹窗（打烊日记）
         if currentPhase_ == PHASE_MANAGE then
             local daySummary = BuildDaySummaryPopup and BuildDaySummaryPopup() or nil
             if daySummary then table.insert(overlays, daySummary) end
+        end
+        -- 周报弹窗（每5天，打烊日记关闭后触发）
+        if currentPhase_ == PHASE_MANAGE then
+            local weeklyReport = BuildWeeklyReportPopup and BuildWeeklyReportPopup() or nil
+            if weeklyReport then table.insert(overlays, weeklyReport) end
         end
         -- 操作确认弹窗（维修/广告选项等）
         if currentPhase_ == PHASE_MANAGE then
@@ -172,6 +177,11 @@ function BuildUI()
         if currentPhase_ == PHASE_MANAGE then
             local storyConfirm = BuildStoryConfirmPopup and BuildStoryConfirmPopup() or nil
             if storyConfirm then table.insert(overlays, storyConfirm) end
+        end
+        -- 行动结果弹窗（打零工/学一招等执行后反馈）
+        if currentPhase_ == PHASE_MANAGE then
+            local actionResult = BuildActionResultPopup and BuildActionResultPopup() or nil
+            if actionResult then table.insert(overlays, actionResult) end
         end
 
         -- 用 SafeAreaView 包裹，自动适配手机刘海/状态栏/胶囊按钮
@@ -595,420 +605,368 @@ end
 
 -- ============================================================================
 -- ============================================================================
--- P0-2 日结分屏弹窗（每天结束后弹出，分3屏展示：收支摘要/今日故事/状态变化）
+-- 打烊日记（单屏合并版：收支+故事+状态+明日预告，一次看完）
 -- ============================================================================
-daySummaryPage_ = 1  -- 当前分屏页码
+daySummaryPage_ = 1  -- 兼容旧代码引用（不再使用分页逻辑）
 
 function BuildDaySummaryPopup()
     if not pendingDaySummary_ then return nil end
     local s = pendingDaySummary_
-    local page = daySummaryPage_ or 1
     local isProfit = (s.netIncome or 0) >= 0
     local profitColor = isProfit and { 100, 220, 100, 255 } or { 240, 80, 80, 255 }
     local profitSign = isProfit and "+" or ""
 
-    -- 判断总页数（有故事内容才显示故事页，有状态变化才显示状态页，有周报才显示周报页）
     local hasStory = s.storyLines and #s.storyLines > 0
     local hasStatus = s.statusChanges and #s.statusChanges > 0
     local hasWeekly = s.weeklyReport ~= nil
-    local totalPages = 1 + (hasStory and 1 or 0) + 1 + (hasWeekly and 1 or 0)  -- 收支 + [故事] + 提示 + [周报]
 
-    -- 构建页面内容
-    local pageContent = {}
-
-    if page == 1 then
-        -- ═══ 第1屏：收支摘要 ═══
-        -- 数据卡片行
-        local cards = UI.Panel {
-            width = "100%", flexDirection = "row", gap = 8,
-            children = {
-                UI.Panel {
-                    flex = 1, borderRadius = 10,
-                    backgroundColor = { 40, 80, 40, 200 },
-                    borderWidth = 1, borderColor = { 80, 160, 80, 120 },
-                    padding = 10, gap = 4, alignItems = "center",
-                    children = {
-                        UI.Label { text = "📈", fontSize = 20 },
-                        UI.Label { text = "$" .. (s.income or 0), fontSize = 16,
-                            fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
-                        UI.Label { text = "今日收入", fontSize = 11, fontColor = C.textLight },
-                    },
-                },
-                UI.Panel {
-                    flex = 1, borderRadius = 10,
-                    backgroundColor = isProfit and { 40, 80, 40, 200 } or { 80, 30, 30, 200 },
-                    borderWidth = 1, borderColor = isProfit and { 80, 160, 80, 120 } or { 160, 60, 60, 120 },
-                    padding = 10, gap = 4, alignItems = "center",
-                    children = {
-                        UI.Label { text = isProfit and "💰" or "📉", fontSize = 20 },
-                        UI.Label { text = profitSign .. (s.netIncome or 0), fontSize = 16,
-                            fontWeight = "bold", fontColor = profitColor },
-                        UI.Label { text = "净利润", fontSize = 11, fontColor = C.textLight },
-                    },
-                },
-                UI.Panel {
-                    flex = 1, borderRadius = 10,
-                    backgroundColor = { 50, 45, 20, 200 },
-                    borderWidth = 1, borderColor = { C.gold[1], C.gold[2], C.gold[3], 100 },
-                    padding = 10, gap = 4, alignItems = "center",
-                    children = {
-                        UI.Label { text = "🏦", fontSize = 20 },
-                        UI.Label { text = "$" .. (s.money or 0), fontSize = 16,
-                            fontWeight = "bold", fontColor = C.gold },
-                        UI.Label { text = "存款", fontSize = 11, fontColor = C.textLight },
-                    },
-                },
-            },
-        }
-        table.insert(pageContent, cards)
-
-        -- 支出明细（紧凑列表）
-        if s.expenses and #s.expenses > 0 then
-            local expChildren = {
-                UI.Label { text = "支出明细", fontSize = 12, fontWeight = "bold",
-                    fontColor = { 200, 180, 150, 200 } },
-            }
-            for _, exp in ipairs(s.expenses) do
-                table.insert(expChildren, UI.Panel {
-                    width = "100%", flexDirection = "row", justifyContent = "space-between",
-                    children = {
-                        UI.Label { text = exp.name, fontSize = 11, fontColor = C.textLight },
-                        UI.Label { text = "-$" .. exp.amount, fontSize = 11,
-                            fontColor = { 240, 130, 100, 220 } },
-                    },
-                })
-            end
-            table.insert(expChildren, UI.Panel {
-                width = "100%", flexDirection = "row", justifyContent = "space-between",
-                marginTop = 4, paddingTop = 4,
-                borderTopWidth = 1, borderColor = { 255, 255, 255, 30 },
-                children = {
-                    UI.Label { text = "合计支出", fontSize = 11, fontWeight = "bold", fontColor = C.textLight },
-                    UI.Label { text = "-$" .. (s.totalExpense or 0), fontSize = 11,
-                        fontWeight = "bold", fontColor = { 240, 100, 80, 255 } },
-                },
-            })
-            table.insert(pageContent, UI.Panel {
-                width = "100%", borderRadius = 8, backgroundColor = { 20, 18, 12, 200 },
-                padding = 10, gap = 3,
-                children = expChildren,
-            })
-        end
-
-        -- 可撑天数指示器
-        if s.surviveDays then
-            local days = s.surviveDays
-            local barColor, icon, urgencyText
-            if days <= 3 then
-                barColor = { 220, 50, 50, 255 }
-                icon = "🚨"
-                urgencyText = "危险！"
-            elseif days <= 7 then
-                barColor = { 220, 170, 30, 255 }
-                icon = "⚠️"
-                urgencyText = "紧张"
-            else
-                barColor = { 80, 180, 80, 255 }
-                icon = "✅"
-                urgencyText = "安全"
-            end
-            table.insert(pageContent, UI.Panel {
-                width = "100%", borderRadius = 8,
-                backgroundColor = { 30, 25, 20, 220 },
-                borderWidth = 1, borderColor = { barColor[1], barColor[2], barColor[3], 100 },
-                padding = 10, gap = 4,
-                flexDirection = "row", alignItems = "center",
-                children = {
-                    UI.Label { text = icon, fontSize = 18 },
-                    UI.Panel {
-                        flex = 1, marginLeft = 8, gap = 2,
-                        children = {
-                            UI.Label {
-                                text = "按当前支出可撑 " .. days .. " 天",
-                                fontSize = 12, fontWeight = "bold", fontColor = barColor,
-                            },
-                            UI.Label {
-                                text = urgencyText .. " · 日均支出 $" .. (s.totalExpense or 0),
-                                fontSize = 10, fontColor = C.textLight,
-                            },
-                        },
-                    },
-                },
-            })
-        end
-
-    elseif page == 2 and hasStory then
-        -- ═══ 第2屏：今日故事 ═══
-        local storyChildren = {}
-        for i, line in ipairs(s.storyLines) do
-            if i <= 5 then
-                table.insert(storyChildren, UI.Label {
-                    text = line, fontSize = 12,
-                    fontColor = { 220, 210, 190, 230 },
-                    whiteSpace = "normal", lineHeight = 1.5,
-                })
-                if i < math.min(5, #s.storyLines) then
-                    table.insert(storyChildren, UI.Panel {
-                        width = "100%", height = 1,
-                        backgroundColor = { 255, 255, 255, 15 }, marginVertical = 2,
-                    })
-                end
-            end
-        end
-        table.insert(pageContent, UI.Panel {
-            width = "100%", borderRadius = 8, backgroundColor = { 25, 30, 20, 200 },
-            borderWidth = 1, borderColor = { 100, 140, 80, 80 },
-            padding = 12, gap = 6,
-            children = storyChildren,
-        })
-
-    elseif page == totalPages and hasWeekly then
-        -- ═══ 五日周报页 ═══
-        local wr = s.weeklyReport
-        local netPositive = (wr.totalNet or 0) >= 0
-        -- 评级
-        local grade = "D"
-        if wr.avgNet >= 200 then grade = "S"
-        elseif wr.avgNet >= 100 then grade = "A"
-        elseif wr.avgNet >= 50 then grade = "B"
-        elseif wr.avgNet >= 0 then grade = "C"
-        end
-        local gradeColors = { S = {255,215,0,255}, A = {100,220,100,255}, B = {100,180,220,255}, C = {200,180,100,255}, D = {200,100,100,255} }
-        local gradeColor = gradeColors[grade] or C.textLight
-        -- 趋势箭头
-        local function trend(val)
-            if val > 0 then return "↑" .. val
-            elseif val < 0 then return "↓" .. math.abs(val)
-            else return "→ 持平" end
-        end
-        table.insert(pageContent, UI.Panel {
-            width = "100%", borderRadius = 12,
-            backgroundColor = { 20, 30, 50, 220 },
-            borderWidth = 1, borderColor = { 100, 150, 220, 150 },
-            padding = 14, gap = 8,
-            children = {
-                -- 标题与评级
-                UI.Panel {
-                    width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                    children = {
-                        UI.Label { text = "📅 第" .. wr.fromDay .. "~" .. wr.toDay .. "天", fontSize = 13, fontWeight = "bold", fontColor = { 180, 210, 255, 255 } },
-                        UI.Panel {
-                            paddingHorizontal = 10, paddingVertical = 4, borderRadius = 8,
-                            backgroundColor = { gradeColor[1], gradeColor[2], gradeColor[3], 40 },
-                            borderWidth = 1, borderColor = gradeColor,
-                            children = { UI.Label { text = grade .. "级", fontSize = 14, fontWeight = "bold", fontColor = gradeColor } },
-                        },
-                    },
-                },
-                -- 数据汇总
-                UI.Panel {
-                    width = "100%", flexDirection = "row", gap = 6,
-                    children = {
-                        UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
-                            UI.Label { text = "$" .. wr.totalIncome, fontSize = 14, fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
-                            UI.Label { text = "总收入", fontSize = 10, fontColor = C.textLight },
-                        }},
-                        UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
-                            UI.Label { text = "$" .. wr.totalExpense, fontSize = 14, fontWeight = "bold", fontColor = { 240, 130, 100, 255 } },
-                            UI.Label { text = "总支出", fontSize = 10, fontColor = C.textLight },
-                        }},
-                        UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
-                            UI.Label { text = (netPositive and "+" or "") .. wr.totalNet, fontSize = 14, fontWeight = "bold", fontColor = netPositive and {100,220,100,255} or {240,80,80,255} },
-                            UI.Label { text = "净利润", fontSize = 10, fontColor = C.textLight },
-                        }},
-                    },
-                },
-                -- 增长指标
-                UI.Panel {
-                    width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
-                },
-                UI.Panel {
-                    width = "100%", gap = 4,
-                    children = {
-                        UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
-                            UI.Label { text = "💰 资金变动", fontSize = 11, fontColor = C.textLight },
-                            UI.Label { text = trend(wr.moneyGrowth), fontSize = 11, fontColor = wr.moneyGrowth >= 0 and {100,220,100,255} or {240,100,80,255} },
-                        }},
-                        UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
-                            UI.Label { text = "⭐ 声望变动", fontSize = 11, fontColor = C.textLight },
-                            UI.Label { text = trend(wr.repGrowth), fontSize = 11, fontColor = wr.repGrowth >= 0 and {100,180,220,255} or {240,100,80,255} },
-                        }},
-                        UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
-                            UI.Label { text = "📈 日均收入", fontSize = 11, fontColor = C.textLight },
-                            UI.Label { text = "$" .. wr.avgIncome, fontSize = 11, fontColor = { 180, 220, 180, 255 } },
-                        }},
-                    },
-                },
-                -- 最佳/最差天
-                (wr.bestDay and wr.worstDay) and UI.Panel {
-                    width = "100%", flexDirection = "row", gap = 6, marginTop = 2,
-                    children = {
-                        UI.Panel { flex = 1, borderRadius = 6, backgroundColor = {30,60,30,200}, padding = 6, alignItems = "center", gap = 2, children = {
-                            UI.Label { text = "🏆 最佳", fontSize = 9, fontColor = C.textLight },
-                            UI.Label { text = "Day" .. (wr.bestDay.day or "?"), fontSize = 11, fontWeight = "bold", fontColor = {120,220,120,255} },
-                            UI.Label { text = "+$" .. (wr.bestDay.net or 0), fontSize = 10, fontColor = {100,200,100,200} },
-                        }},
-                        UI.Panel { flex = 1, borderRadius = 6, backgroundColor = {60,30,30,200}, padding = 6, alignItems = "center", gap = 2, children = {
-                            UI.Label { text = "📉 最差", fontSize = 9, fontColor = C.textLight },
-                            UI.Label { text = "Day" .. (wr.worstDay.day or "?"), fontSize = 11, fontWeight = "bold", fontColor = {240,130,100,255} },
-                            UI.Label { text = "$" .. (wr.worstDay.net or 0), fontSize = 10, fontColor = {200,100,80,200} },
-                        }},
-                    },
-                } or UI.Panel { height = 0 },
-            },
-        })
-
-    else
-        -- ═══ 状态变化 + 提示页 ═══
-        -- 状态变化
-        if hasStatus then
-            local statChildren = {}
-            for _, st in ipairs(s.statusChanges) do
-                table.insert(statChildren, UI.Label {
-                    text = st, fontSize = 13, fontColor = { 200, 200, 220, 240 },
-                })
-            end
-            table.insert(pageContent, UI.Panel {
-                width = "100%", borderRadius = 8, backgroundColor = { 30, 25, 40, 200 },
-                borderWidth = 1, borderColor = { 120, 100, 180, 80 },
-                padding = 10, gap = 6,
-                children = statChildren,
-            })
-        end
-        -- 提示
-        table.insert(pageContent, UI.Panel {
-            width = "100%", borderRadius = 10,
-            backgroundColor = { 30, 50, 70, 200 },
-            borderWidth = 1, borderColor = { 80, 130, 200, 120 },
-            padding = 10, flexDirection = "row", gap = 8, alignItems = "flex-start",
-            children = {
-                UI.Label { text = "💡", fontSize = 16, flexShrink = 0 },
-                UI.Label {
-                    text = s.tip or "继续经营，招募队员，向非洲电竞冠军进发！",
-                    fontSize = 12, fontColor = { 160, 210, 255, 230 },
-                    whiteSpace = "normal", lineHeight = 1.4, flex = 1,
-                },
-            },
-        })
-        -- 明日预告
-        if s.tomorrowPreview then
-            local tp = s.tomorrowPreview
-            table.insert(pageContent, UI.Panel {
-                width = "100%", borderRadius = 10,
-                backgroundColor = { 50, 35, 15, 220 },
-                borderWidth = 1, borderColor = { 220, 170, 50, 150 },
-                padding = 10, gap = 4,
-                children = {
-                    UI.Label {
-                        text = "🔮 明日预告",
-                        fontSize = 13, fontWeight = "bold",
-                        fontColor = { 255, 210, 80, 255 },
-                    },
-                    UI.Panel {
-                        width = "100%", flexDirection = "row", gap = 8, alignItems = "center",
-                        children = {
-                            UI.Label { text = tp.icon, fontSize = 20 },
-                            UI.Panel { flex = 1, gap = 2, children = {
-                                UI.Label {
-                                    text = tp.title,
-                                    fontSize = 13, fontWeight = "bold",
-                                    fontColor = { 255, 240, 200, 255 },
-                                },
-                                UI.Label {
-                                    text = tp.hint,
-                                    fontSize = 11, fontColor = { 200, 180, 140, 220 },
-                                    whiteSpace = "normal", lineHeight = 1.3,
-                                },
-                            }},
-                        },
-                    },
-                },
-            })
-        end
+    -- 关闭按钮回调
+    local function closeSummary()
+        PlaySFX("click")
+        -- 周报已禁用（用户反馈弹窗过多），直接关闭日记回到经营界面
+        pendingDaySummary_ = nil
+        daySummaryPage_ = 1
+        BuildUI()
     end
 
-    -- 页面标题（动态构建页面标题列表）
-    local pageTitleList = { "📊 收支摘要" }
-    if hasStory then table.insert(pageTitleList, "📖 今日故事") end
-    table.insert(pageTitleList, "🔔 状态总结")
-    if hasWeekly then table.insert(pageTitleList, "📋 五日周报") end
-    local titleText = pageTitleList[page] or pageTitleList[1]
+    -- ═══ 内容区段列表 ═══
+    local sections = {}
 
-    -- 翻页指示器
-    local dots = {}
-    for i = 1, totalPages do
-        table.insert(dots, UI.Panel {
-            width = 8, height = 8, borderRadius = 4,
-            backgroundColor = (i == page) and C.gold or { 100, 100, 100, 150 },
-            marginHorizontal = 3,
-        })
-    end
-
-    -- 按钮：最后一页显示"继续征途"，其他页显示"下一页→"
-    local isLastPage = (page >= totalPages)
-    local btnText = isLastPage and "继续征途 →" or "继续 →"
-    local btnAction = function()
-        if isLastPage then
-            pendingDaySummary_ = nil
-            daySummaryPage_ = 1
-            BuildUI()
-        else
-            ---@diagnostic disable-next-line: assign-type-mismatch
-            daySummaryPage_ = page + 1
-            BuildUI()
-        end
-    end
-
-    -- 组装 children 列表（避免 table.unpack 不在末尾的陷阱）
-    local cardChildren = {
-        -- 标题行
-        UI.Panel {
-            width = "100%", flexDirection = "row", alignItems = "center",
-            justifyContent = "center", gap = 8,
-            children = {
-                UI.Label {
-                    text = "第" .. s.day .. "天 · " .. titleText,
-                    fontSize = 16, fontWeight = "bold",
-                    fontColor = C.gold, textAlign = "center",
+    -- ━━ 区段1: 收支速览 ━━
+    table.insert(sections, UI.Panel {
+        width = "100%", flexDirection = "row", gap = 6,
+        children = {
+            UI.Panel {
+                flex = 1, borderRadius = 8,
+                backgroundColor = { 40, 75, 40, 200 },
+                padding = 8, gap = 2, alignItems = "center",
+                children = {
+                    UI.Label { text = "$" .. (s.income or 0), fontSize = 15,
+                        fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
+                    UI.Label { text = "收入", fontSize = 10, fontColor = C.textLight },
+                },
+            },
+            UI.Panel {
+                flex = 1, borderRadius = 8,
+                backgroundColor = isProfit and { 40, 75, 40, 200 } or { 75, 30, 30, 200 },
+                padding = 8, gap = 2, alignItems = "center",
+                children = {
+                    UI.Label { text = profitSign .. (s.netIncome or 0), fontSize = 15,
+                        fontWeight = "bold", fontColor = profitColor },
+                    UI.Label { text = "净利润", fontSize = 10, fontColor = C.textLight },
+                },
+            },
+            UI.Panel {
+                flex = 1, borderRadius = 8,
+                backgroundColor = { 50, 45, 20, 200 },
+                padding = 8, gap = 2, alignItems = "center",
+                children = {
+                    UI.Label { text = "$" .. (s.money or 0), fontSize = 15,
+                        fontWeight = "bold", fontColor = C.gold },
+                    UI.Label { text = "余额", fontSize = 10, fontColor = C.textLight },
                 },
             },
         },
-        -- 分割线
-        UI.Panel { width = "100%", height = 1, backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 60 } },
-    }
-    -- 插入页面内容
-    for _, item in ipairs(pageContent) do
-        table.insert(cardChildren, item)
+    })
+
+    -- 支出明细（折叠为一行总计 + 展开细节）
+    if s.expenses and #s.expenses > 0 then
+        local expItems = {}
+        for _, exp in ipairs(s.expenses) do
+            table.insert(expItems, UI.Panel {
+                width = "100%", flexDirection = "row", justifyContent = "space-between",
+                children = {
+                    UI.Label { text = exp.name, fontSize = 10, fontColor = C.textLight },
+                    UI.Label { text = "-$" .. exp.amount, fontSize = 10,
+                        fontColor = { 240, 130, 100, 200 } },
+                },
+            })
+        end
+        table.insert(sections, UI.Panel {
+            width = "100%", borderRadius = 6, backgroundColor = { 20, 18, 12, 180 },
+            padding = 8, gap = 2,
+            children = expItems,
+        })
     end
-    -- 翻页指示器
-    table.insert(cardChildren, UI.Panel {
-        width = "100%", flexDirection = "row", justifyContent = "center",
-        alignItems = "center", marginTop = 4,
-        children = dots,
-    })
-    -- 按钮
-    table.insert(cardChildren, UI.Button {
-        text = btnText,
-        width = "100%", height = 42, fontSize = 14, fontWeight = "bold",
-        backgroundColor = isLastPage and C.accent or { 60, 90, 60, 255 },
+
+    -- 可撑天数（紧凑版）
+    if s.surviveDays then
+        local days = s.surviveDays
+        local barColor, icon
+        if days <= 3 then
+            barColor = { 220, 50, 50, 255 }; icon = "🚨"
+        elseif days <= 7 then
+            barColor = { 220, 170, 30, 255 }; icon = "⚠️"
+        else
+            barColor = { 80, 180, 80, 255 }; icon = "✅"
+        end
+        table.insert(sections, UI.Panel {
+            width = "100%", flexDirection = "row", alignItems = "center", gap = 6,
+            padding = 6, borderRadius = 6,
+            backgroundColor = { 25, 22, 18, 180 },
+            children = {
+                UI.Label { text = icon, fontSize = 14 },
+                UI.Label {
+                    text = "可撑 " .. days .. " 天 · 日均支出 $" .. (s.totalExpense or 0),
+                    fontSize = 11, fontColor = barColor,
+                },
+            },
+        })
+    end
+
+    -- ━━ 分隔线 ━━
+    if hasStory or hasStatus then
+        table.insert(sections, UI.Panel {
+            width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
+        })
+    end
+
+    -- ━━ 区段2: 今日记事（故事+状态合并） ━━
+    if hasStory then
+        local storyItems = {}
+        for i, line in ipairs(s.storyLines) do
+            if i <= 4 then  -- 最多显示4条
+                table.insert(storyItems, UI.Label {
+                    text = "· " .. line, fontSize = 11,
+                    fontColor = { 210, 200, 180, 220 },
+                    whiteSpace = "normal", lineHeight = 1.4,
+                })
+            end
+        end
+        table.insert(sections, UI.Panel {
+            width = "100%", gap = 4,
+            children = storyItems,
+        })
+    end
+
+    if hasStatus then
+        for _, st in ipairs(s.statusChanges) do
+            table.insert(sections, UI.Label {
+                text = st, fontSize = 11, fontColor = { 180, 180, 210, 220 },
+            })
+        end
+    end
+
+    -- ━━ 分隔线 ━━
+    if s.tomorrowPreview or s.tip then
+        table.insert(sections, UI.Panel {
+            width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 },
+        })
+    end
+
+    -- ━━ 区段3: 明日预告 ━━
+    if s.tomorrowPreview then
+        local tp = s.tomorrowPreview
+        table.insert(sections, UI.Panel {
+            width = "100%", flexDirection = "row", gap = 8, alignItems = "center",
+            padding = 8, borderRadius = 8,
+            backgroundColor = { 45, 35, 15, 200 },
+            borderWidth = 1, borderColor = { 200, 160, 50, 100 },
+            children = {
+                UI.Label { text = tp.icon or "🔮", fontSize = 18, flexShrink = 0 },
+                UI.Panel { flex = 1, gap = 2, children = {
+                    UI.Label {
+                        text = "明日: " .. (tp.title or ""),
+                        fontSize = 12, fontWeight = "bold",
+                        fontColor = { 255, 230, 160, 255 },
+                    },
+                    UI.Label {
+                        text = tp.hint or "",
+                        fontSize = 10, fontColor = { 190, 170, 130, 200 },
+                        whiteSpace = "normal", lineHeight = 1.3,
+                    },
+                }},
+            },
+        })
+    end
+
+    -- 提示语（简短版，放在按钮前）
+    if s.tip then
+        table.insert(sections, UI.Panel {
+            width = "100%", flexDirection = "row", gap = 6, alignItems = "center",
+            children = {
+                UI.Label { text = "💡", fontSize = 12, flexShrink = 0 },
+                UI.Label {
+                    text = s.tip,
+                    fontSize = 10, fontColor = { 140, 190, 230, 200 },
+                    whiteSpace = "normal", lineHeight = 1.3, flex = 1,
+                },
+            },
+        })
+    end
+
+    -- ━━ 确认按钮 ━━
+    table.insert(sections, UI.Button {
+        text = "继续征途 →",
+        width = "100%", height = 44, fontSize = 14, fontWeight = "bold",
+        backgroundColor = C.accent,
         borderRadius = PX.cardRadius,
-        onClick = btnAction,
+        onClick = closeSummary,
     })
+
+    -- ═══ 组装卡片 ═══
+    return UI.Panel {
+        position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
+        backgroundColor = { 0, 0, 0, 180 },
+        justifyContent = "center", alignItems = "center",
+        paddingHorizontal = 16,
+        zIndex = 300,
+        onClick = closeSummary,
+        children = {
+            UI.ScrollView {
+                width = "100%", maxWidth = 340,
+                maxHeight = "85%",
+                backgroundColor = C.card,
+                borderRadius = PX.cardRadius,
+                borderWidth = PX.border, borderColor = C.gold,
+                padding = 16, gap = 10,
+                children = {
+                    UI.Panel {
+                        width = "100%", gap = 10,
+                        children = {
+                            -- 标题
+                            UI.Label {
+                                text = "打烊日记 · 第" .. s.day .. "天",
+                                fontSize = 15, fontWeight = "bold",
+                                fontColor = C.gold, textAlign = "center",
+                                width = "100%",
+                            },
+                            UI.Panel { width = "100%", height = 1, backgroundColor = { C.gold[1], C.gold[2], C.gold[3], 50 } },
+                            table.unpack(sections),
+                        },
+                    },
+                },
+            },
+        },
+    }
+end
+
+-- ============================================================================
+-- 五日周报弹窗（从打烊日记关闭后单独弹出，低频不影响每日节奏）
+-- ============================================================================
+---@type table|nil
+pendingWeeklyReport_ = nil
+
+function BuildWeeklyReportPopup()
+    if not pendingWeeklyReport_ then return nil end
+    local wr = pendingWeeklyReport_
+    local netPositive = (wr.totalNet or 0) >= 0
+    -- 评级
+    local grade = "D"
+    if wr.avgNet >= 200 then grade = "S"
+    elseif wr.avgNet >= 100 then grade = "A"
+    elseif wr.avgNet >= 50 then grade = "B"
+    elseif wr.avgNet >= 0 then grade = "C"
+    end
+    local gradeColors = { S = {255,215,0,255}, A = {100,220,100,255}, B = {100,180,220,255}, C = {200,180,100,255}, D = {200,100,100,255} }
+    local gradeColor = gradeColors[grade] or C.textLight
+    local function trend(val)
+        if val > 0 then return "↑" .. val
+        elseif val < 0 then return "↓" .. math.abs(val)
+        else return "→ 持平" end
+    end
+
+    local function closeReport()
+        PlaySFX("click")
+        pendingWeeklyReport_ = nil
+        BuildUI()
+    end
 
     return UI.Panel {
         position = "absolute", top = 0, left = 0, right = 0, bottom = 0,
         backgroundColor = { 0, 0, 0, 180 },
         justifyContent = "center", alignItems = "center",
-        paddingHorizontal = 20,
+        paddingHorizontal = 16,
         zIndex = 300,
+        onClick = closeReport,
         children = {
-            UI.Panel {
-                width = "100%", maxWidth = 340,
+            UI.ScrollView {
+                width = "100%", maxWidth = 340, maxHeight = "85%",
                 backgroundColor = C.card,
                 borderRadius = PX.cardRadius,
-                borderWidth = PX.border, borderColor = C.gold,
-                padding = 20, gap = 12,
-                children = cardChildren,
+                borderWidth = PX.border, borderColor = { 100, 150, 220, 200 },
+                padding = 16, gap = 10,
+                children = {
+                    UI.Panel {
+                        width = "100%", gap = 10,
+                        children = {
+                            -- 标题与评级
+                            UI.Panel {
+                                width = "100%", flexDirection = "row", justifyContent = "space-between", alignItems = "center",
+                                children = {
+                                    UI.Label { text = "📋 五日周报 · 第" .. wr.fromDay .. "~" .. wr.toDay .. "天", fontSize = 14, fontWeight = "bold", fontColor = { 180, 210, 255, 255 } },
+                                    UI.Panel {
+                                        paddingHorizontal = 8, paddingVertical = 3, borderRadius = 6,
+                                        backgroundColor = { gradeColor[1], gradeColor[2], gradeColor[3], 40 },
+                                        borderWidth = 1, borderColor = gradeColor,
+                                        children = { UI.Label { text = grade .. "级", fontSize = 13, fontWeight = "bold", fontColor = gradeColor } },
+                                    },
+                                },
+                            },
+                            UI.Panel { width = "100%", height = 1, backgroundColor = { 100, 150, 220, 60 } },
+                            -- 数据汇总
+                            UI.Panel {
+                                width = "100%", flexDirection = "row", gap = 6,
+                                children = {
+                                    UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
+                                        UI.Label { text = "$" .. wr.totalIncome, fontSize = 14, fontWeight = "bold", fontColor = { 120, 220, 120, 255 } },
+                                        UI.Label { text = "总收入", fontSize = 10, fontColor = C.textLight },
+                                    }},
+                                    UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
+                                        UI.Label { text = "$" .. wr.totalExpense, fontSize = 14, fontWeight = "bold", fontColor = { 240, 130, 100, 255 } },
+                                        UI.Label { text = "总支出", fontSize = 10, fontColor = C.textLight },
+                                    }},
+                                    UI.Panel { flex = 1, alignItems = "center", gap = 2, children = {
+                                        UI.Label { text = (netPositive and "+" or "") .. wr.totalNet, fontSize = 14, fontWeight = "bold", fontColor = netPositive and {100,220,100,255} or {240,80,80,255} },
+                                        UI.Label { text = "净利润", fontSize = 10, fontColor = C.textLight },
+                                    }},
+                                },
+                            },
+                            -- 增长指标
+                            UI.Panel {
+                                width = "100%", gap = 4,
+                                children = {
+                                    UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
+                                        UI.Label { text = "💰 资金变动", fontSize = 11, fontColor = C.textLight },
+                                        UI.Label { text = trend(wr.moneyGrowth), fontSize = 11, fontColor = wr.moneyGrowth >= 0 and {100,220,100,255} or {240,100,80,255} },
+                                    }},
+                                    UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
+                                        UI.Label { text = "⭐ 声望变动", fontSize = 11, fontColor = C.textLight },
+                                        UI.Label { text = trend(wr.repGrowth), fontSize = 11, fontColor = wr.repGrowth >= 0 and {100,180,220,255} or {240,100,80,255} },
+                                    }},
+                                    UI.Panel { width = "100%", flexDirection = "row", justifyContent = "space-between", children = {
+                                        UI.Label { text = "📈 日均收入", fontSize = 11, fontColor = C.textLight },
+                                        UI.Label { text = "$" .. wr.avgIncome, fontSize = 11, fontColor = { 180, 220, 180, 255 } },
+                                    }},
+                                },
+                            },
+                            -- 最佳/最差天
+                            (wr.bestDay and wr.worstDay) and UI.Panel {
+                                width = "100%", flexDirection = "row", gap = 6, marginTop = 2,
+                                children = {
+                                    UI.Panel { flex = 1, borderRadius = 6, backgroundColor = {30,60,30,200}, padding = 6, alignItems = "center", gap = 2, children = {
+                                        UI.Label { text = "🏆 最佳", fontSize = 9, fontColor = C.textLight },
+                                        UI.Label { text = "Day" .. (wr.bestDay.day or "?"), fontSize = 11, fontWeight = "bold", fontColor = {120,220,120,255} },
+                                        UI.Label { text = "+$" .. (wr.bestDay.net or 0), fontSize = 10, fontColor = {100,200,100,200} },
+                                    }},
+                                    UI.Panel { flex = 1, borderRadius = 6, backgroundColor = {60,30,30,200}, padding = 6, alignItems = "center", gap = 2, children = {
+                                        UI.Label { text = "📉 最差", fontSize = 9, fontColor = C.textLight },
+                                        UI.Label { text = "Day" .. (wr.worstDay.day or "?"), fontSize = 11, fontWeight = "bold", fontColor = {240,130,100,255} },
+                                        UI.Label { text = "$" .. (wr.worstDay.net or 0), fontSize = 10, fontColor = {200,100,80,200} },
+                                    }},
+                                },
+                            } or UI.Panel { height = 0 },
+                            -- 关闭按钮
+                            UI.Button {
+                                text = "了解 →",
+                                width = "100%", height = 44, fontSize = 14, fontWeight = "bold",
+                                backgroundColor = { 60, 90, 140, 255 },
+                                borderRadius = PX.cardRadius,
+                                onClick = closeReport,
+                            },
+                        },
+                    },
+                },
             },
         },
     }
@@ -1096,25 +1054,56 @@ function BuildComicUI()
         children = lineChildren,
     })
 
+    -- P0-2: 最后一页的选择/开始按钮固定在底部（不放入ScrollView），防止被挤出视口
+    local fixedBottomPanel = nil  -- 如果非nil，将渲染在ScrollView下方
+
     if hasChoices and not comicChoiceResponse_ then
-        -- 显示选择按钮（点击面板不翻页）
-        table.insert(bottomChildren, UI.Panel { height = 6 })
-        for _, choice in ipairs(panel.choices) do
-            table.insert(bottomChildren, UI.Button {
-                text = choice.text, fontSize = 13, fontWeight = "bold",
-                whiteSpace = "normal",
-                width = "88%", maxWidth = 320, minHeight = 36,
-                paddingTop = 6, paddingBottom = 6,
-                backgroundColor = { 60, 45, 30, 220 },
-                fontColor = { 255, 248, 235, 240 },
-                borderWidth = 1, borderColor = { 255, 200, 100, 120 },
-                borderRadius = 8,
-                onClick = function()
-                    PlaySFX("click")
-                    comicChoiceResponse_ = choice.response
-                    BuildUI()
-                end,
-            })
+        if isLast then
+            -- 最后一页：选择按钮放到固定底部区域
+            local choiceBtns = {}
+            for _, choice in ipairs(panel.choices) do
+                table.insert(choiceBtns, UI.Button {
+                    text = choice.text, fontSize = 13, fontWeight = "bold",
+                    whiteSpace = "normal",
+                    width = "88%", maxWidth = 320, minHeight = 36,
+                    paddingTop = 6, paddingBottom = 6,
+                    backgroundColor = { 60, 45, 30, 220 },
+                    fontColor = { 255, 248, 235, 240 },
+                    borderWidth = 1, borderColor = { 255, 200, 100, 120 },
+                    borderRadius = 8,
+                    onClick = function()
+                        PlaySFX("click")
+                        comicChoiceResponse_ = choice.response
+                        BuildUI()
+                    end,
+                })
+            end
+            fixedBottomPanel = UI.Panel {
+                width = "100%", paddingHorizontal = 16, paddingTop = 8, paddingBottom = 10,
+                backgroundColor = { 20, 14, 10, 250 },
+                alignItems = "center", gap = 6,
+                children = choiceBtns,
+            }
+        else
+            -- 非最后页：选择按钮在ScrollView内
+            table.insert(bottomChildren, UI.Panel { height = 6 })
+            for _, choice in ipairs(panel.choices) do
+                table.insert(bottomChildren, UI.Button {
+                    text = choice.text, fontSize = 13, fontWeight = "bold",
+                    whiteSpace = "normal",
+                    width = "88%", maxWidth = 320, minHeight = 36,
+                    paddingTop = 6, paddingBottom = 6,
+                    backgroundColor = { 60, 45, 30, 220 },
+                    fontColor = { 255, 248, 235, 240 },
+                    borderWidth = 1, borderColor = { 255, 200, 100, 120 },
+                    borderRadius = 8,
+                    onClick = function()
+                        PlaySFX("click")
+                        comicChoiceResponse_ = choice.response
+                        BuildUI()
+                    end,
+                })
+            end
         end
     elseif comicChoiceResponse_ then
         -- 已选择：显示响应文本 + 点击继续提示
@@ -1166,10 +1155,10 @@ function BuildComicUI()
                 backgroundFit = "cover",
                 backgroundColor = { 10, 8, 6, 255 },
             },
-            -- 下方文字+选项区域（紧凑，不留多余空白）
+            -- 下方文字区域（紧凑，不留多余空白）
             UI.ScrollView {
                 width = "100%", flexShrink = 1, flexGrow = 0,
-                maxHeight = "55%",
+                maxHeight = fixedBottomPanel and "40%" or "50%",
                 paddingTop = 10, paddingBottom = 10,
                 paddingLeft = 16, paddingRight = 16,
                 backgroundColor = { 20, 14, 10, 250 },
@@ -1181,6 +1170,26 @@ function BuildComicUI()
                     },
                 },
             },
+            -- P0-2: 固定底部按钮区（选择按钮或开始游戏），确保不被滚出视口
+            fixedBottomPanel or ((isLast and panelOnClick) and UI.Panel {
+                width = "100%", paddingHorizontal = 24, paddingVertical = 8,
+                backgroundColor = { 20, 14, 10, 250 },
+                alignItems = "center",
+                children = {
+                    UI.Button {
+                        text = "▶ 开始游戏",
+                        width = "100%", maxWidth = 280, height = 44,
+                        fontSize = 16, fontWeight = "bold",
+                        backgroundColor = { 200, 160, 60, 255 },
+                        borderRadius = 22,
+                        onClick = function()
+                            PlaySFX("click")
+                            comicChoiceResponse_ = nil
+                            advanceComic()
+                        end,
+                    },
+                },
+            } or nil),
             -- 右上角跳过按钮
             UI.Panel {
                 position = "absolute", top = 8, right = 8,

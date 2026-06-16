@@ -601,9 +601,7 @@ function BuildWeeklyRankingContent()
                 children = {
                     UI.Label { text = "第" .. (rec.week or "?") .. "周", fontSize = 11, fontColor = C.textDim, width = 42 },
                     UI.Label { text = "Day" .. (rec.day or "?"), fontSize = 11, fontColor = C.textLight, width = 38 },
-                    UI.Panel { flex = 1, height = 4, backgroundColor = { C.border[1], C.border[2], C.border[3], 100 }, borderRadius = 2, overflow = "hidden", children = {
-                        UI.Panel { width = math.min(100, math.floor((rec.cafeScore or 0) / math.max(1, CalcCafeScore()) * 100)) .. "%", height = "100%", backgroundColor = C.gold, borderRadius = 2 },
-                    }},
+                    UI.Panel { flex = 1, children = { PixelBar(math.min(1, (rec.cafeScore or 0) / math.max(1, CalcCafeScore())), { height = 4, barColor = C.gold }) } },
                     UI.Label { text = tostring(rec.cafeScore or 0), fontSize = 11, fontColor = C.text, width = 32, textAlign = "right" },
                     UI.Label { text = prevRec and ((delta >= 0 and "+" or "") .. delta) or "-", fontSize = 10, fontColor = deltaColor, width = 30, textAlign = "right" },
                 },

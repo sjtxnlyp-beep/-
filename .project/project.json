@@ -5,39 +5,45 @@
     "id": "553773639"
   },
   "entry": "main.lua",
-  "version": "1.0.117",
+  "version": "1.0.120",
   "taptap_publish": {
     "title": "非洲网吧大亨",
     "description": "揣着最后的5000美金，你踏上了非洲这片热烈又神秘的土地。\n\n在这里，电力是奢侈品，网络是玄学，但年轻人对电竞的狂热胜过赤道烈日。你将从几台二手大头电脑起家，在停电、排队、加密货币热潮中摸爬滚打，把一间破网吧经营成横跨非洲7座城市的电竞帝国。\n\n【经营 + 叙事双核驱动】\n每一天都有新故事：街边的Mama想跟你合作卖鸡腿，想当程序员的女孩Ama来求兼职，Grace的父亲冲进店里质问你……每个NPC都有自己的人生轨迹，你的每个选择都会改变他们的命运。\n\n【丰富的玩法系统】\n- 招募队员、训练电竞技能、征战职业联赛\n- 升级设备、扩容网吧、应对突发危机\n- 逛二手市场淘宝、修手机赚外快、代练接单\n- 解锁非洲大陆7座城市，建立你的网吧帝国版图\n\n从拉各斯街头的小老板，到征服整个非洲大陆的电竞大亨——这是你的故事。",
     "category": "simulation",
     "screen_orientation": "portrait",
     "collection_type": "sce",
-    "trial_note": "v1.0.112 大更新！\n\n从最初的一个灵感到现在40多个系统模块，这个游戏已经远超我的预期。\n\n这次更新加入了：章节叙事系统（每个章节都有专属漫画过场）、NPC深度故事线（恋爱/友情/师徒多条线）、威望系统（征服非洲7城）、二手市场抽卡、危机连锁事件、每日问候系统等。\n\n我最想做的是：让每个玩家都能在非洲街头找到属于自己的故事。不只是数字增长的经营游戏，而是一段有温度的旅程。\n\n欢迎反馈任何建议，尤其是中后期体验（15天之后）的节奏感受！",
+    "trial_note": "v1.0.115 大更新！\n\n这次重点优化了，故事线之间的串联，把主线更明确了\n\n这次更新加入了：章节叙事系统（每个章节都有专属漫画过场）、NPC深度故事线（恋爱/友情/师徒多条线）、威望系统（征服非洲7城）、二手市场抽卡、危机连锁事件、每日问候系统等。\n\n我最想做的是：让每个玩家都能在非洲街头找到属于自己的故事。不只是数字增长的经营游戏，而是一段有温度的旅程。\n\n欢迎反馈任何建议，尤其是中后期体验（15天之后）的节奏感受！",
     "app_platforms": "1,2",
     "developer_id": 393096,
     "app_id": 846350,
     "miniapp_id": "tapmc0hlgfzey1sv3l",
-    "gameplay_demo_video_source": "https://tapcode-sce.spark.xd.com/videos/p_d8yd/1779345999511-rec_81e951d1-0d17-4696-aa63-79a9d81383bf.mp4"
+    "gameplay_demo_video_source": "https://tapcode-sce.spark.xd.com/videos/p_d8yd/1781538720424-rec_a22a0010-8e35-4c71-b7fe-6ba50875cc7a.mp4"
   },
   "assets": {
-    "icon": "./game_material/ICON_2026-06-09T13-26-40_01.png",
+    "icon": "./game_material/ICON_2026-06-15T15-58-15_01.jpg",
     "screenshots": [
-      "./game_material/SCREENSHOT_2026-06-09T13-18-34_01.jpg",
-      "./game_material/SCREENSHOT_2026-06-09T13-18-34_02.png",
-      "./game_material/SCREENSHOT_2026-06-09T13-18-34_03.png"
+      "./game_material/SCREENSHOT_2026-06-15T14-45-34_01.jpg",
+      "./game_material/SCREENSHOT_2026-06-15T14-45-34_02.jpg",
+      "./game_material/SCREENSHOT_2026-06-15T14-45-34_03.jpg"
     ],
-    "promotional_image": "./game_material/PROMO_2026-06-09T14-26-56_01.jpg",
-    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/ICON_2026-06-09T13-26-40_01.png",
+    "promotional_image": "./game_material/PROMO_2026-06-15T14-45-34_01.jpg",
+    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/ICON_2026-06-15T15-58-15_01.jpg",
     "screenshot_urls": [
-      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-09T13-18-34_01.jpg",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-09T13-18-34_02.png",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-09T13-18-34_03.png"
+      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-15T14-45-34_01.jpg",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-15T14-45-34_02.jpg",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SCREENSHOT_2026-06-15T14-45-34_03.jpg"
     ],
-    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/PROMO_2026-06-09T14-26-56_01.jpg"
+    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/PROMO_2026-06-15T14-45-34_01.jpg",
+    "cover_vertical": "./.project/game_material/COVER_VERTICAL_2026-06-15T15-20-39_01.png",
+    "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/COVER_VERTICAL_2026-06-15T15-20-39_01.png",
+    "cover_horizontal": "./.project/game_material/COVER_HORIZONTAL_2026-06-15T15-20-39_01.png",
+    "cover_horizontal_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/COVER_HORIZONTAL_2026-06-15T15-20-39_01.png",
+    "square_promotional_image": "./game_material/SQUARE_PROMO_2026-06-15T15-56-44_01.jpg",
+    "square_promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/非洲网吧大亨/SQUARE_PROMO_2026-06-15T15-56-44_01.jpg"
   },
   "metadata": {
-    "updated_at": "2026-06-09T14:26:58.089Z",
-    "promo_dependent_hash": "cdfbd999cf4f572981716eb0df9182b5"
+    "updated_at": "2026-06-15T15:58:17.182Z",
+    "promo_dependent_hash": "01e2f50f57ada65c386500da569f88ed"
   },
   "test_qrcode": {
     "url": "https://tapcode-sce.spark.xd.com/qrcode/p_d8yd_1779694172577.png",

@@ -29,6 +29,10 @@ AdManager.limits = {
     market_pull     = 2,  -- 市场广告抽卡
     upgrade_skip    = 2,  -- 升级加速/跳过
     ap_recover      = 2,  -- RV2 广告恢复行动点
+    -- ▼ Tab专属赞助广告 ▼
+    hood_influencer = 1,  -- 街区：网红探店（声望+客流）
+    risk_insider    = 1,  -- 投资：神秘线报（下次交易加成）
+    rest_filmmaker  = 1,  -- 副业：纪录片拍摄（现金+声望）
 }
 
 --- 观看记录  { [sceneId] = { count=N, lastDay=D } }

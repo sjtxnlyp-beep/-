@@ -28,12 +28,10 @@ function BuildTeamCard()
                         UI.Label { text = "天" .. m.talent, fontSize = 13, fontColor = C.gold },
                         UI.Label { text = moodIcon .. m.mood, fontSize = 13, fontColor = moodColor },
                     }},
-                    -- 技能进度条
+                    -- 像素风技能进度条
                     UI.Panel { flexDirection = "row", gap = 4, alignItems = "center", width = "100%", children = {
                         UI.Label { text = "技" .. m.skill, fontSize = 13, fontColor = C.green },
-                        UI.Panel { flex = 1, height = 4, backgroundColor = { C.border[1], C.border[2], C.border[3], 120 }, borderRadius = PX.radiusSm, overflow = "hidden", children = {
-                            UI.Panel { width = skillPct .. "%", height = "100%", backgroundColor = C.green, borderRadius = PX.radiusSm },
-                        }},
+                        UI.Panel { flex = 1, children = { PixelBar(m.skill / 100, { height = 5, barColor = C.green }) } },
                     }},
                     -- 特质标签
                     m.perk and UI.Panel { flexDirection = "row", gap = 4, alignItems = "center", children = {

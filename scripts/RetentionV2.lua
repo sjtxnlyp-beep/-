@@ -270,8 +270,8 @@ function RV2.CheckNewbieBonus(day)
                 },
             }
         end
-    elseif day == 3 then
-        -- Day3: 免费参加一场友谊赛的提示
+    elseif day == 3 and #teamMembers_ > 0 then
+        -- Day3: 免费参加一场友谊赛的提示（必须有队员才能参赛）
         return {
             title = "📢 社区比赛邀请",
             desc = "社区活动中心的人来了：\"明天有个小型电竞赛，你们战队要不要参加？报名免费！\"",

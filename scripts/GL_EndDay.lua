@@ -51,6 +51,8 @@ function EndDay()
         return
     end
     log:Write(LOG_INFO, "[EndDay] === START day=" .. tostring(playerData_.day) .. " money=" .. tostring(playerData_.money) .. " ===")
+    manageTab_ = "action"  -- 新一天始终回到经营页
+    currentActionTab_ = "manage"  -- 子tab也回到经营（非副业/风险等）
     PlaySFX("day_dawn")
     -- 刷新今日客流（确保 EndDay 与显示一致）
     cachedTrafficDay_ = -1  -- 强制重算（新一天开始）
@@ -812,6 +814,63 @@ function EndDay()
     friendlyMatchToday_ = false   -- 重置友谊赛冷却
     playerData_.overtimeUsedToday  = false  -- 方案B: 重置加班标记
 
+    -- ── 行动Tab每日重置 ──
+    playerData_.communityEventToday = false
+    playerData_.territoryManagedToday = false
+    playerData_.riskyBizToday = false
+    playerData_.oddJobToday = false
+    playerData_.tutorDoneToday = false
+    playerData_.learnedSkillToday = false
+
+    -- ── 地盘经营被动收入结算 ──
+    if (playerData_.territoryIncomeDays or 0) > 0 then
+        local tIncome = playerData_.territoryIncomePerDay or 40
+        playerData_.money = (playerData_.money or 0) + tIncome
+        playerData_.territoryIncomeDays = playerData_.territoryIncomeDays - 1
+        AddLog("🏘️ 地盘经营收租 +$" .. tIncome ..
+            (playerData_.territoryIncomeDays > 0 and ("（剩余" .. playerData_.territoryIncomeDays .. "天）") or "（已到期）"))
+    end
+
+    -- ── 大额投资到期结算 ──
+    if playerData_.partnerInvestment then
+        local inv = playerData_.partnerInvestment
+        if playerData_.day >= (inv.returnDay or 0) then
+            local rate = inv.successRate or 60  -- 百分比整数 (55 或 70)
+            if math.random(1, 100) <= rate then
+                local returns = math.floor((inv.amount or 0) * (1.5 + math.random() * 0.5))
+                playerData_.money = (playerData_.money or 0) + returns
+                local netProfit = returns - (inv.amount or 0)
+                AddLog("📈 大额投资到期！回报 +$" .. returns .. "（本金 $" .. (inv.amount or 0) .. "）")
+                playerData_.pendingInvestResult = {
+                    success = true,
+                    icon = "📈",
+                    title = "📈 大额投资 · 丰收日",
+                    narrative = "合伙人一大早就敲你的门，满脸兴奋：\n\n「哥们！成了！那批货全出了！」\n\n他把一叠现金拍在桌上——数了数，$" .. returns .. "。\n扣掉你投入的$" .. (inv.amount or 0) .. "，净赚$" .. netProfit .. "。\n\n「我就说了，信我没错吧？」他得意地笑着走了。",
+                    effects = "💰 回报$" .. returns .. "（净赚$" .. netProfit .. "）",
+                    logText = "📈 大额投资到期 — 净赚$" .. netProfit,
+                }
+            else
+                AddLog("📉 大额投资失败…本金 $" .. (inv.amount or 0) .. " 血本无归")
+                playerData_.pendingInvestResult = {
+                    success = false,
+                    icon = "📉",
+                    title = "📉 大额投资 · 打水漂",
+                    narrative = "到了约定的日子，合伙人的电话怎么都打不通。\n\n你跑到他常出没的地方问了一圈——\n「他啊？昨天背着包走了，说要去拉各斯……」\n\n$" .. (inv.amount or 0) .. "，就这么没了。\n你蹲在路边，点了根烟，沉默很久。",
+                    effects = "💸 血本无归，亏损 $" .. (inv.amount or 0),
+                    logText = "📉 大额投资失败 — 亏了$" .. (inv.amount or 0),
+                }
+            end
+            playerData_.partnerInvestment = nil
+        end
+    end
+
+    -- ── 网红探店次日客流加成 ──
+    if (playerData_.tomorrowFlowBonus or 0) > 0 then
+        trafficBonus_ = (trafficBonus_ or 0) + playerData_.tomorrowFlowBonus
+        AddLog("📸 网红探店效应！今日额外客流 +" .. playerData_.tomorrowFlowBonus)
+        playerData_.tomorrowFlowBonus = 0
+    end
+
     -- ── 生成明日策略卡 ──
     local nextStrat = PickRandomStrategy()
     if nextStrat then
@@ -867,25 +926,11 @@ function EndDay()
     -- 今日委托功能已暂停，跳过委托结算与生成
     -- GenerateDailyQuest()
 
-    -- P0-B 今日任务清单：每天开始时汇总任务给玩家（Day5+）
-    if Retention and Retention.BuildDayStartSummary then
-        local dsOk, dsResult = pcall(Retention.BuildDayStartSummary, playerData_.day)
-        if dsOk then
-            pendingDayStartSummary_ = dsResult  -- nil 表示不弹（Day1-4）
-        else
-            log:Write(LOG_ERROR, "[EndDay] BuildDayStartSummary error: " .. tostring(dsResult))
-        end
-    end
+    -- P0-B 今日任务清单：已禁用（用户反馈每日弹窗过多，信息在经营界面已可见）
+    pendingDayStartSummary_ = nil
 
-    -- 门口闲聊系统：每天开始时随机触发（D5+，80%概率）
-    if DoorstepChat and DoorstepChat.Generate then
-        local dcOk, dcResult = pcall(DoorstepChat.Generate, playerData_.day)
-        if dcOk and dcResult then
-            pendingDoorstepChat_ = dcResult
-        elseif not dcOk then
-            log:Write(LOG_ERROR, "[EndDay] DoorstepChat.Generate error: " .. tostring(dcResult))
-        end
-    end
+    -- 门口闲聊系统：已禁用（用户反馈弹窗过多）
+    pendingDoorstepChat_ = nil
 
     -- 留存系统：目标链进度检查（日结时自动检测并发放奖励）
     if Retention then
@@ -994,20 +1039,23 @@ function EndDay()
     end
 
     -- 新手引导（留存系统：前7天触发交互式教程事件，Day8+ 保留文字提示）
-    local day = playerData_.day
+    -- 注意：此时 playerData_.day 已经 +1（prevDay 是刚结束的那天），
+    -- 教程事件应基于 prevDay（刚过去的那天），不提前消耗下一天的主线事件
+    local tutDay = prevDay
     local tutorialEventPending = nil  -- 暂存教程事件，在事件触发阶段统一处理
     -- Day2-4: 如果主线行动已触发对应事件，日终不再重复
-    local skipTutorial = (day == 2 and playerData_.day2CrisisDone)
-        or (day == 3 and playerData_.day3KofiDone)
-        or (day == 4 and playerData_.day4CommunityDone)
-    if day >= 1 and day <= 7 and Retention and not tutorialShownToday_ and not skipTutorial then
-        local tutOk, tutResult = pcall(Retention.GetNextTutorialEvent, day, 0)
+    local skipTutorial = (tutDay == 2 and playerData_.day2CrisisDone)
+        or (tutDay == 3 and playerData_.day3KofiDone)
+        or (tutDay == 4 and playerData_.day4CommunityDone)
+    if tutDay >= 1 and tutDay <= 14 and Retention and not tutorialShownToday_ and not skipTutorial then
+        local tutOk, tutResult = pcall(Retention.GetNextTutorialEvent, tutDay, 0)
         if tutOk and tutResult then
             tutorialEventPending = tutResult
             tutorialShownToday_ = true
+            -- 注意：day2CrisisDone 不在此处设置！
+            -- 标记移到事件实际触发时（RV2 block 或 tutorial fire block），
+            -- 否则会破坏 RV2 Day2Payoff 的条件判断。
         end
-    elseif day == 10 then
-        AddLog("💡 提示：随着声望提高，更多有趣的事件和人物会出现！继续经营！")
     end
 
     -- 生成群聊消息（每天结算时自动产生）
@@ -1041,31 +1089,36 @@ function EndDay()
     local saveOk, saveErr = pcall(SaveGame)
     if not saveOk then log:Write(LOG_ERROR, "[EndDay] SaveGame error: " .. tostring(saveErr)) end
 
-    -- P2-A 成就系统：每日结算后检查新成就
-    local newAchOk, newAchResult = pcall(Achievements.CheckAndUnlock)
-    if newAchOk and newAchResult and #newAchResult > 0 then
-        -- 有新解锁成就 → 存入队列，由 UIScreens 弹出通知
-        pendingAchievements_ = newAchResult
-        for _, ach in ipairs(newAchResult) do
-            AddLog("🏅 成就解锁：「" .. ach.title .. "」" .. ach.desc)
+    -- P2-A 成就系统：检查新成就但不弹窗，只记录日志
+    -- （用户反馈弹窗过多，成就改为静默记录到日志+邮箱）
+    if prevDay >= 4 then
+        local newAchOk, newAchResult = pcall(Achievements.CheckAndUnlock)
+        if newAchOk and newAchResult and #newAchResult > 0 then
+            for _, ach in ipairs(newAchResult) do
+                AddLog("🏅 成就解锁：「" .. ach.title .. "」" .. ach.desc)
+            end
+            -- 存入邮箱供玩家手动查看，不再弹窗
+            playerData_.mailbox = playerData_.mailbox or {}
+            for _, ach in ipairs(newAchResult) do
+                table.insert(playerData_.mailbox, {
+                    type = "achievement", title = ach.title or ach.id,
+                    icon = ach.icon or "🏆", desc = ach.desc or "",
+                    reward = ach.reward, read = false,
+                    time = playerData_.day or 1,
+                })
+            end
+        elseif not newAchOk then
+            log:Write(LOG_ERROR, "[EndDay] Achievements.CheckAndUnlock error: " .. tostring(newAchResult))
         end
-    elseif not newAchOk then
-        log:Write(LOG_ERROR, "[EndDay] Achievements.CheckAndUnlock error: " .. tostring(newAchResult))
     end
+    pendingAchievements_ = nil
 
-    -- 留存系统：生成明日预告（存档后，确保数据最新）
-    if Retention then
-        local prevOk, prevResult = pcall(Retention.GenerateTomorrowPreview, playerData_.day)
-        if prevOk and prevResult then
-            pendingTomorrowPreview_ = prevResult
-        else
-            if not prevOk then log:Write(LOG_ERROR, "[EndDay] GenerateTomorrowPreview error: " .. tostring(prevResult)) end
-        end
-    end
+    -- 留存系统：明日预告已禁用（用户反馈弹窗过多，信息密度不够）
+    pendingTomorrowPreview_ = nil
     tutorialShownToday_ = false  -- 重置教程标记，为明天准备
 
-    -- P0-2 日结分屏：每天结束弹出3屏总结（收支 / 今日故事 / 状态变化）
-    do
+    -- P0-2 日结弹窗：Day2+ 弹出打烊日记（Day1 教学期不弹，信息量太少）
+    if prevDay >= 2 then do
         local tips = {
             "招募队员后可以训练他们，技术越高跑刀赚得越多！",
             "点击「升级」标签，给网吧装备更好的设备，提升日收入！",
@@ -1147,7 +1200,7 @@ function EndDay()
             powerOut = powerOut,
             tomorrowPreview = tomorrowEvt,
         }
-    end
+    end end  -- if prevDay >= 2 then do
 
     -- 2.4 五日结算周：记录每日数据
     if not playerData_.dayHistory then playerData_.dayHistory = {} end
@@ -1399,7 +1452,7 @@ function EndDay()
               text = "你已经经营20天了。在游戏里开网吧比现实轻松多了，至少不用真的修电脑。" },
             { cond = function() return (playerData_.equipCondition or 100) < 30 and math.random() < 0.15 end,
               text = "设备耐久度告急。电脑发出的声音已经不像机器了，像是在求饶。" },
-            { cond = function() return day == 30 end, text = "第30天。开发者本来想在这里放个彩蛋，但deadline来了。这就是彩蛋。" },
+            -- D30 已有正式主线事件（AEL决赛/结局分流），不再用第四面墙彩蛋
             { cond = function() return (playerData_.karma or 0) <= -5 and math.random() < 0.1 end,
               text = "道义值过低。村里的孩子经过你店门口都加速跑过去了。" },
         }
@@ -1427,8 +1480,9 @@ function EndDay()
             playerData_.rv2Day1Shown = true
             rv2Event = RV2.GetDay1Cliffhanger()
             if rv2Event then rv2Event.type = "auto"; rv2Event.autoResult = rv2Event.result end
-        elseif prevDay == 2 and not playerData_.rv2Day2Shown then
+        elseif prevDay == 2 and not playerData_.rv2Day2Shown and not playerData_.day2CrisisDone then
             playerData_.rv2Day2Shown = true
+            playerData_.day2CrisisDone = true  -- 标记Day2主线已完成，防止重复触发
             rv2Event = RV2.GetDay2Payoff()
         elseif pendingRV2Event_ then
             rv2Event = pendingRV2Event_
@@ -1455,8 +1509,14 @@ function EndDay()
         end
     end
 
-    -- 留存系统：教程事件优先触发（Day 1-3 的交互式引导）
+    -- 留存系统：教程事件触发（Day 1-14 的交互式引导）
+    -- P0-1 防御: 如果 Day2 主线已通过 DoDay2MainAction 或 RV2 完成，跳过 tutorial
+    if tutorialEventPending and prevDay == 2 and playerData_.day2CrisisDone then
+        tutorialEventPending = nil
+    end
     if tutorialEventPending then
+        -- Fallback标记：如果教程事件作为Day2兜底触发，也要标记完成
+        if prevDay == 2 then playerData_.day2CrisisDone = true end
         eventOk, eventErr = pcall(function()
             currentEvent_ = tutorialEventPending
             currentPhase_ = PHASE_EVENT

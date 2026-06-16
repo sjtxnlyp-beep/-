@@ -231,6 +231,9 @@ function BuildGameOverUI()
         farewellText = table.concat(names, "、") .. " 向你挥手告别……"
     end
 
+    -- 经营摘要（单行紧凑）
+    local statsText = "📅" .. daysSurvived .. "天  💻" .. playerData_.computers .. "台  👥" .. teamSize .. "人  ⭐" .. tostring(playerData_.reputation)
+
     return UI.Panel {
         width = "100%", height = "100%",
         backgroundImage = SCENE_IMAGES.ending_bankrupt,
@@ -239,109 +242,81 @@ function BuildGameOverUI()
         justifyContent = "center", alignItems = "center",
         paddingHorizontal = 16,
         children = {
-            UI.ScrollView {
-                width = "90%", maxWidth = 420, maxHeight = "92%",
+            UI.Panel {
+                width = "90%", maxWidth = 380,
+                backgroundColor = C.card, borderRadius = 16,
+                borderWidth = 2, borderColor = { 200, 70, 60, 120 },
+                paddingHorizontal = 18, paddingVertical = 14, gap = 6,
+                alignItems = "center",
+                boxShadow = { { x = 0, y = 6, blur = 20, color = { 0, 0, 0, 120 } } },
                 children = {
+                    -- 标题区
+                    UI.Label { text = " 破产结局", fontSize = 20, fontColor = C.red,
+                        textShadow = { offsetX = 0, offsetY = 2, blur = 6, color = { 0, 0, 0, 160 } } },
+                    -- 叙事文本
+                    UI.Label { text = narrative, fontSize = 12, fontColor = C.text,
+                        whiteSpace = "normal", textAlign = "center", lineHeight = 1.5, width = "100%" },
+                    -- 队员告别
+                    teamSize > 0 and UI.Label {
+                        text = farewellText, fontSize = 11, fontColor = C.textDim,
+                        whiteSpace = "normal", textAlign = "center", width = "100%",
+                        fontStyle = "italic",
+                    } or UI.Panel { height = 0 },
+                    -- 经营数据（紧凑一行）
                     UI.Panel {
-                        width = "100%", padding = { 24, 20 }, gap = 10,
-                        backgroundColor = C.card, borderRadius = 20,
-                        borderWidth = 2, borderColor = { 200, 70, 60, 120 },
+                        width = "100%", paddingVertical = 6, paddingHorizontal = 10,
+                        backgroundColor = C.cardAlt, borderRadius = 8,
                         alignItems = "center",
-                        boxShadow = { { x = 0, y = 6, blur = 20, color = { 0, 0, 0, 120 } } },
                         children = {
-                            UI.Label { text = "", fontSize = 48 },
-                            UI.Panel { height = 4 },
-                            UI.Label { text = "破产结局：网吧倒闭", fontSize = 22, fontColor = C.red,
-                                textShadow = { offsetX = 0, offsetY = 2, blur = 6, color = { 0, 0, 0, 160 } } },
-                            UI.Panel {
-                                flexDirection = "row", gap = 6, alignItems = "center",
-                                paddingHorizontal = 10, paddingVertical = 3,
-                                backgroundColor = C.cardAlt, borderRadius = 12,
-                                children = {
-                                    UI.Label { text = "★", fontSize = 12, fontColor = C.gold },
-                                    UI.Label { text = "简单", fontSize = 11, fontColor = C.green, fontWeight = "bold" },
-                                },
-                            },
-                            UI.Label { text = "资金耗尽即触发", fontSize = 11, fontColor = C.textLight,
-                                textAlign = "center" },
-                            UI.Panel { height = 4 },
-                            UI.Label { text = narrative, fontSize = 13, fontColor = C.text,
-                                whiteSpace = "normal", textAlign = "center", lineHeight = 1.6, width = "100%" },
-                            teamSize > 0 and UI.Label {
-                                text = farewellText, fontSize = 14, fontColor = C.textDim,
-                                whiteSpace = "normal", textAlign = "center", width = "100%",
-                                fontStyle = "italic",
-                            } or UI.Panel { height = 0 },
-                            UI.Panel { height = 8 },
-                            -- 经营记录
-                            UI.Panel {
-                                width = "100%", padding = 12, gap = 5,
-                                backgroundColor = C.cardAlt, borderRadius = 10,
-                                children = {
-                                    PanelHeader("经营记录", { icon = "", compact = true }),
-                                    InfoRow("坚持天数", daysSurvived .. " 天"),
-                                    InfoRow("最终规模", playerData_.computers .. " 台电脑"),
-                                    InfoRow("队伍人数", teamSize .. " 人"),
-                                    InfoRow("最高声望", tostring(playerData_.reputation), C.gold),
-                                    InfoRow("成就解锁", Achievements.GetStats().unlocked .. "/" .. Achievements.GetStats().total, C.gold),
-                                },
-                            },
-                            UI.Panel { height = 8 },
-                            -- 小贴士
-                            UI.Panel {
-                                width = "100%", padding = 10,
-                                backgroundColor = C.cardAlt, borderRadius = 8,
-                                children = {
-                                    UI.Label {
-                                        text = "经营小贴士：尽早升级烤鸡摊和装饰，可以显著增加每日收入。控制升级节奏，别把钱花光了！",
-                                        fontSize = 13, fontColor = C.green,
-                                        whiteSpace = "normal", lineHeight = 1.5, width = "100%",
-                                    },
-                                },
-                            },
-                            UI.Panel { height = 10 },
-                            AdManager.CanWatch("bailout_boost", playerData_.day) and AdManager.AdButton {
-                                sceneId = "bailout_boost", day = playerData_.day,
-                                text = "看视频获得赞助商投资 $600", width = "80%", height = 46, fontSize = 15,
-                                onReward = function()
-                                    playerData_.money = 600
-                                    AddLog("�� 赞助商看好你的潜力，投资了$600！声望不减，卷土重来！")
-                                    StartTransition("💰 赞助商投资", "有人相信你的实力！这笔投资让你重新站起来。", function()
-                                        PlayBGM("manage")
-                                        currentPhase_ = PHASE_MANAGE; BuildUI()
-                                    end)
-                                end,
-                            } or UI.Panel { height = 0 },
-                            UI.Button {
-                                text = "接受救济，继续经营", width = "80%", height = 46, fontSize = 16, variant = "primary",
-                                onClick = function()
-                                    PlaySFX("click")
-                                    local bailout = 300
-                                    playerData_.money = bailout
-                                    playerData_.reputation = math.max(0, playerData_.reputation - 20)
-                                    AddLog("🤝 Mama Blessing和邻居们凑了$" .. bailout .. "帮你渡过难关。你决定重整旗鼓！")
-                                    AddLog("  （声望 -20，大家虽然帮了你，但街坊们的眼神多了几分同情……）")
-                                    StartTransition("🤝 好心人的援手", "跌倒了，爬起来！街坊邻居不会看着你倒下。", function()
-                                        PlayBGM("manage")
-                                        currentPhase_ = PHASE_MANAGE; BuildUI()
-                                    end)
-                                end,
-                            },
-                            UI.Panel { height = 4 },
-                            UI.Button {
-                                text = "东山再起（重新开始）", width = "80%", height = 38, fontSize = 14,
-                                onClick = function()
-                                    PlaySFX("click")
-                                    StartTransition("重新出发", "这次一定行！", function()
-                                        ResetGame()
-                                    end)
-                                end,
-                            },
-                            UI.Panel { height = 4 },
-                            UI.Label { text = "\"跌倒了不可怕，可怕的是不敢再站起来。\"", fontSize = 13,
-                                fontColor = C.textLight, fontStyle = "italic" },
+                            UI.Label { text = statsText, fontSize = 12, fontColor = C.gold, textAlign = "center" },
                         },
                     },
+                    -- 小贴士
+                    UI.Label {
+                        text = "💡 小贴士：控制升级节奏，优先增收再扩张，别一口气花光！",
+                        fontSize = 11, fontColor = C.green,
+                        whiteSpace = "normal", textAlign = "center", width = "100%",
+                    },
+                    -- 按钮区
+                    UI.Panel { width = "100%", height = 1, backgroundColor = { 255, 255, 255, 20 }, marginVertical = 2 },
+                    AdManager.CanWatch("bailout_boost", playerData_.day) and AdManager.AdButton {
+                        sceneId = "bailout_boost", day = playerData_.day,
+                        text = "📺 看视频获赞助 $600", width = "100%", height = 40, fontSize = 14,
+                        onReward = function()
+                            playerData_.money = 600
+                            AddLog("💰 赞助商看好你的潜力，投资了$600！声望不减，卷土重来！")
+                            StartTransition("💰 赞助商投资", "有人相信你的实力！这笔投资让你重新站起来。", function()
+                                PlayBGM("manage")
+                                currentPhase_ = PHASE_MANAGE; BuildUI()
+                            end)
+                        end,
+                    } or UI.Panel { height = 0 },
+                    UI.Button {
+                        text = "🤝 接受救济，继续经营", width = "100%", height = 40, fontSize = 14, variant = "primary",
+                        onClick = function()
+                            PlaySFX("click")
+                            local bailout = 300
+                            playerData_.money = bailout
+                            playerData_.reputation = math.max(0, playerData_.reputation - 20)
+                            AddLog("🤝 Mama Blessing和邻居们凑了$" .. bailout .. "帮你渡过难关。你决定重整旗鼓！")
+                            AddLog("  （声望 -20，大家虽然帮了你，但街坊们的眼神多了几分同情……）")
+                            StartTransition("🤝 好心人的援手", "跌倒了，爬起来！街坊邻居不会看着你倒下。", function()
+                                PlayBGM("manage")
+                                currentPhase_ = PHASE_MANAGE; BuildUI()
+                            end)
+                        end,
+                    },
+                    UI.Button {
+                        text = "东山再起（重新开始）", width = "100%", height = 34, fontSize = 13,
+                        onClick = function()
+                            PlaySFX("click")
+                            StartTransition("重新出发", "这次一定行！", function()
+                                ResetGame()
+                            end)
+                        end,
+                    },
+                    UI.Label { text = "\"跌倒了不可怕，可怕的是不敢再站起来\"", fontSize = 11,
+                        fontColor = C.textLight, fontStyle = "italic" },
                 },
             },
         },
